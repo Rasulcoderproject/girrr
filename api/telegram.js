@@ -86,4 +86,25 @@ D) ...
 
 // GPT с OpenRouter
 async function askGPT(prompt) {
-  const res = await fetch("https://openrouter.ai/api/v
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7
+    })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    console.error("OpenRouter API error:", data);
+    return "Ошибка генерации: " + (data.error?.message || "неизвестная ошибка");
+  }
+
+  return data.choices?.[0]?.message?.content || "Ошибка генерации.";
+}
