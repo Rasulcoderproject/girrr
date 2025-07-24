@@ -1,6 +1,5 @@
 const fetch = require("node-fetch");
 const cheerio = require("cheerio");
-
 const sessions = {};
 
 module.exports = async (req, res) => {
@@ -8,84 +7,64 @@ module.exports = async (req, res) => {
 
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const body = req.body;
-  const msg = body.message || body.callback_query?.message;
   const text = body.message?.text;
-  const callbackData = body.callback_query?.data;
+  const callback = body.callback_query;
+  const msg = body.message || callback?.message;
   const chat_id = msg?.chat?.id;
 
-  const sendMessage = (text, keyboard = null) => {
-    return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const sendMessage = (text, keyboard) =>
+    fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id,
-        text,
-        reply_markup: keyboard ? { inline_keyboard: keyboard } : undefined,
-      }),
+      body: JSON.stringify({ chat_id, text, reply_markup: keyboard }),
     });
-  };
 
-  if (!chat_id) return res.status(200).send("No chat_id");
+  const sess = sessions[chat_id] || {};
 
-  // Обработка команды /start
   if (text === "/start") {
-    sessions[chat_id] = { step: null };
-    await sendMessage("👋 Привет! Я помогу вам узнать статус вашей заявки.", [
-      [{ text: "🔍 Проверить статус заявки", callback_data: "check_status" }]
-    ]);
-    return res.status(200).send("OK");
+    sessions[chat_id] = {};
+    await sendMessage("👋 Привет! Хочешь узнать статус заявки?", {
+      inline_keyboard: [[{ text: "🔍 Проверить статус", callback_data: "check" }]],
+    });
+    return res.send("OK");
   }
 
-  // Обработка нажатия кнопки
-  if (callbackData === "check_status") {
-    sessions[chat_id] = { step: "ask_application" };
-    await sendMessage("📄 Введите номер вашей заявки (например: UZB-10838/25):");
-    return res.status(200).send("OK");
+  if (callback?.data === "check") {
+    sessions[chat_id] = { step: "get_number" };
+    await sendMessage("📄 Введите ваш номер заявки (пример: UZB-10838/25):");
+    return res.send("OK");
   }
 
-  const session = sessions[chat_id];
-
-  if (session?.step === "ask_application") {
-    if (!/^UZB-\d+\/\d+$/.test(text)) {
-      await sendMessage("⚠️ Неверный формат. Пример: UZB-10838/25");
-      return res.status(200).send("OK");
-    }
-
-    session.applicationNumber = text;
-    session.step = "ask_email";
-    await sendMessage("✉️ Теперь введите ваш адрес электронной почты:");
-    return res.status(200).send("OK");
+  if (sess.step === "get_number") {
+    sessions[chat_id].number = text;
+    sessions[chat_id].step = "get_email";
+    await sendMessage("✉️ Теперь введите вашу почту:");
+    return res.send("OK");
   }
 
-  if (session?.step === "ask_email") {
-    if (!/^\S+@\S+\.\S+$/.test(text)) {
-      await sendMessage("⚠️ Неверный формат email. Пример: example@gmail.com");
-      return res.status(200).send("OK");
-    }
-
-    session.email = text;
-    session.step = "checking";
-    await sendMessage("🔍 Проверяю статус вашей заявки...");
-
-    const { applicationNumber, email } = session;
-    const url = `https://russia-edu.minobrnauki.gov.ru/application-status?number=${encodeURIComponent(applicationNumber)}&email=${encodeURIComponent(email)}`;
-
-    try {
-      const response = await fetch(url);
-      const html = await response.text();
-      const $ = cheerio.load(html);
-
-      const status = $("#status").text().trim() || "❗ Статус не найден. Проверьте данные.";
-      await sendMessage(`📄 Статус заявки:\n${status}`);
-    } catch (err) {
-      await sendMessage("❗ Ошибка при запросе. Попробуйте позже.");
-    }
-
+  if (sess.step === "get_email") {
+    sessions[chat_id].email = text;
+    await sendMessage("🔎 Проверяю...");
+    const { number, email } = sessions[chat_id];
     delete sessions[chat_id];
-    return res.status(200).send("OK");
+
+    // отправка POST-запроса на форму отслеживания
+    const resp = await fetch("https://russia-edu.minobrnauki.gov.ru/...", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ number, email }),
+    });
+    const html = await resp.text();
+    const $ = cheerio.load(html);
+
+    const name = $("#fullName").text().trim() || "Имя не найдено";
+    const status = $("#status").text().trim() || "Статус не найден";
+
+    await sendMessage(`📋 Заявка: ${number}\n👤 ФИО: ${name}\n📌 Статус: ${status}`);
+    return res.send("OK");
   }
 
-  // Если нет команды
-  await sendMessage("❓ Нажмите /start для начала.");
-  return res.status(200).send("OK");
+  // default
+  await sendMessage("Нажмите /start, чтобы начать.");
+  return res.send("OK");
 };
