@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
 
   if (text === "/start") {
     sessions[chat_id] = {};
-    await sendMessage("👋 Привет! Хочешь узнать статус заявки?", {
+    await sendMessage("👋 Привет! Я помогу узнать статус вашей заявки.", {
       inline_keyboard: [[{ text: "🔍 Проверить статус", callback_data: "check" }]],
     });
     return res.send("OK");
@@ -31,40 +31,56 @@ module.exports = async (req, res) => {
 
   if (callback?.data === "check") {
     sessions[chat_id] = { step: "get_number" };
-    await sendMessage("📄 Введите ваш номер заявки (пример: UZB-10838/25):");
+    await sendMessage("📄 Введите номер заявки (пример: UZB-10838/25):");
     return res.send("OK");
   }
 
   if (sess.step === "get_number") {
     sessions[chat_id].number = text;
     sessions[chat_id].step = "get_email";
-    await sendMessage("✉️ Теперь введите вашу почту:");
+    await sendMessage("✉️ Теперь введите ваш email:");
     return res.send("OK");
   }
 
   if (sess.step === "get_email") {
     sessions[chat_id].email = text;
-    await sendMessage("🔎 Проверяю...");
+    await sendMessage("🔍 Ищу информацию...");
+
     const { number, email } = sessions[chat_id];
     delete sessions[chat_id];
 
-    // отправка POST-запроса на форму отслеживания
-    const resp = await fetch("https://russia-edu.minobrnauki.gov.ru/...", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ number, email }),
-    });
-    const html = await resp.text();
-    const $ = cheerio.load(html);
+    try {
+      // 1. Получить trackingUrl
+      const searchRes = await fetch("https://russia-edu.minobrnauki.gov.ru/tracking/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ number, email }),
+      });
 
-    const name = $("#fullName").text().trim() || "Имя не найдено";
-    const status = $("#status").text().trim() || "Статус не найден";
+      const json = await searchRes.json();
+      if (!json.trackingUrl) {
+        await sendMessage("❗ Не удалось найти заявку. Проверьте номер и почту.");
+        return res.send("OK");
+      }
 
-    await sendMessage(`📋 Заявка: ${number}\n👤 ФИО: ${name}\n📌 Статус: ${status}`);
+      const trackingUrl = "https://russia-edu.minobrnauki.gov.ru" + json.trackingUrl;
+
+      // 2. Получить и распарсить HTML
+      const htmlRes = await fetch(trackingUrl);
+      const html = await htmlRes.text();
+      const $ = cheerio.load(html);
+
+      const name = $(".personal-info strong").first().text().trim() || "Имя не найдено";
+      const status = $(".application-status span").first().text().trim() || "Статус не найден";
+
+      await sendMessage(`📋 Заявка: ${number}\n👤 ФИО: ${name}\n📌 Статус: ${status}`);
+    } catch (err) {
+      await sendMessage("❗ Произошла ошибка. Попробуйте позже.");
+    }
+
     return res.send("OK");
   }
 
-  // default
   await sendMessage("Нажмите /start, чтобы начать.");
   return res.send("OK");
 };
