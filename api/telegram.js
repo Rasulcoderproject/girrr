@@ -1,67 +1,71 @@
 const fetch = require("node-fetch");
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
 const sessions = {};
-
-async function askGPT(prompt) {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7
-    })
-  });
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "Ошибка генерации.";
-}
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).send("Only POST allowed");
+  if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
   const body = req.body;
-  const msg = body.message;
-  const chat_id = msg?.chat?.id;
-  const text = msg?.text;
+  const message = body.message;
+  const text = message?.text;
+  const chat_id = message?.chat?.id;
 
   const sendMessage = (text, keyboard) =>
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id, text, reply_markup: keyboard })
+      body: JSON.stringify({ chat_id, text, reply_markup: keyboard }),
     });
-
-  const session = sessions[chat_id] || {};
 
   if (text === "/start") {
     sessions[chat_id] = {};
-    await sendMessage("👋 Привет! Выбери тему для теста:", {
-      keyboard: [["Математика", "История"], ["Английский язык"]],
+    return await sendMessage("👋 Привет! Выбери тему для теста:", {
+      keyboard: [[{ text: "История" }, { text: "Математика" }]],
       resize_keyboard: true,
-      one_time_keyboard: true
-    });
-    return res.end("OK");
+    }).then(() => res.send("OK"));
   }
 
-  if (["Математика", "История", "Английский язык"].includes(text)) {
-    sessions[chat_id] = { theme: text };
-    const prompt = `Создай 1 вопрос с 4 вариантами по теме "${text}", укажи правильный ответ.`;
-    const gptResponse = await askGPT(prompt);
-    sessions[chat_id].question = gptResponse;
-    await sendMessage(`📚 Вопрос по теме *${text}*:\n\n${gptResponse}`, {
-      remove_keyboard: true
-    });
-    return res.end("OK");
+  // Выбор темы
+  const currentSession = sessions[chat_id] || {};
+  if (!currentSession.topic && (text === "История" || text === "Математика")) {
+    sessions[chat_id] = { topic: text };
+    const prompt = `Задай один интересный тестовый вопрос с 4 вариантами ответа по теме: ${text}, с правильным ответом.`;
+
+    const answer = await askGPT(prompt);
+    return await sendMessage(`📚 Вопрос по теме *${text}*:\n\n${answer}`, {
+      parse_mode: "Markdown",
+      keyboard: [[{ text: "История" }, { text: "Математика" }]],
+      resize_keyboard: true,
+    }).then(() => res.send("OK"));
   }
 
-  // После вопроса можно добавить проверку ответа и повторную генерацию — позже
-
-  await sendMessage("Нажми /start, чтобы начать заново.");
-  return res.end("OK");
+  await sendMessage("👋 Напиши /start, чтобы начать сначала.");
+  return res.send("OK");
 };
+
+// 🧠 GPT через OpenRouter
+async function askGPT(prompt) {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-3.5-turbo", // можешь заменить на другую
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7
+    })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    console.error("❌ OpenRouter API error:", data);
+    return "Ошибка генерации: " + (data.error?.message || "неизвестная ошибка");
+  }
+
+  return data.choices?.[0]?.message?.content || "Ошибка генерации.";
+}
