@@ -21,37 +21,47 @@ module.exports = async (req, res) => {
 
   const session = sessions[chat_id] || {};
 
-  // Начало
+  // Старт
   if (text === "/start") {
     sessions[chat_id] = {};
     return await sendMessage("👋 Привет! Выбери тему для теста:", {
-      keyboard: [[{ text: "История" }, { text: "Математика" }]],
+      keyboard: [
+        [{ text: "История" }, { text: "Математика" }],
+        [{ text: "Английский" }]
+      ],
       resize_keyboard: true,
     }).then(() => res.send("OK"));
   }
 
-  // Проверка ответа
+  // Проверка ответа пользователя
   if (session.correctAnswer) {
-    const userAnswer = text.trim().toLowerCase();
-    const correct = session.correctAnswer.toLowerCase();
+    const userAnswer = text.trim().toUpperCase();
+    const correct = session.correctAnswer.toUpperCase();
     delete sessions[chat_id].correctAnswer;
 
     if (userAnswer === correct) {
       await sendMessage("✅ Правильно! Хочешь ещё вопрос?", {
-        keyboard: [[{ text: "История" }, { text: "Математика" }]],
+        keyboard: [
+          [{ text: "История" }, { text: "Математика" }],
+          [{ text: "Английский" }]
+        ],
         resize_keyboard: true,
       });
     } else {
-      await sendMessage(`❌ Неправильно. Правильный ответ: ${session.correctAnswer}\nПопробуешь ещё?`, {
-        keyboard: [[{ text: "История" }, { text: "Математика" }]],
+      await sendMessage(`❌ Неправильно. Правильный ответ: ${correct}\nПопробуешь ещё?`, {
+        keyboard: [
+          [{ text: "История" }, { text: "Математика" }],
+          [{ text: "Английский" }]
+        ],
         resize_keyboard: true,
       });
     }
+
     return res.send("OK");
   }
 
   // Выбор темы
-  if (text === "История" || text === "Математика") {
+  if (["История", "Математика", "Английский"].includes(text)) {
     const topic = text;
     const prompt = `
 Задай один тестовый вопрос с 4 вариантами ответа по теме "${topic}".
@@ -65,26 +75,31 @@ D) ...
     `.trim();
 
     const reply = await askGPT(prompt);
+
     const match = reply.match(/Правильный ответ:\s*([A-D])/i);
-    const correctAnswer = match ? match[1].trim() : null;
+    const correctAnswer = match ? match[1].trim().toUpperCase() : null;
 
     if (!correctAnswer) {
       await sendMessage("⚠️ Не удалось сгенерировать вопрос. Попробуй снова.");
       return res.send("OK");
     }
 
+    const questionWithoutAnswer = reply.replace(/Правильный ответ:\s*[A-D]/i, "").trim();
+
     sessions[chat_id] = { correctAnswer };
-    await sendMessage(`📚 Вопрос по теме *${topic}*:\n\n${reply}`, {
+    await sendMessage(`📚 Вопрос по теме *${topic}*:\n\n${questionWithoutAnswer}`, {
       parse_mode: "Markdown",
     });
+
     return res.send("OK");
   }
 
+  // Неизвестная команда
   await sendMessage("⚠️ Напиши /start, чтобы начать сначала.");
   return res.send("OK");
 };
 
-// GPT с OpenRouter
+// GPT через OpenRouter
 async function askGPT(prompt) {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
