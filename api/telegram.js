@@ -67,7 +67,7 @@ module.exports = async (req, res) => {
       keyboard: [
         [{ text: "Угадай слово" }, { text: "Найди ложь" }],
         [{ text: "Продолжи историю" }, { text: "Шарада" }],
-        [{ text: "/start" }]
+        [{ text: "/start" }, { text: "/stats" }]
       ],
       resize_keyboard: true,
     }).then(() => res.send("OK"));
