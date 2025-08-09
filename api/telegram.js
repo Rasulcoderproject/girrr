@@ -215,29 +215,14 @@ async function processGameLogic(chat_id, text) {
   // Приём отзыва
   if (feedbackSessions[chat_id]) {
     delete feedbackSessions[chat_id];
- 
-     delete feedbackSessions[chat_id];
-
-  const from = sessions[chat_id]?.from || {}; // сохраним полный объект пользователя
-  const firstName = from.first_name || "Без имени";
-  const lastName = from.last_name || "";
-  const username = from.username || "нет";
-  const lang = from.language_code || "неизвестно";
-  const isPremium = from.is_premium ? "Да" : "Нет";
-  const isBot = from.is_bot ? "Да" : "Нет";
-
-  await sendMessage(
-    OWNER_ID,
-    `💬 Отзыв от: ${firstName} ${lastName}\n` +
-    `@${username}\n` +
-    `ID: ${chat_id}\n` +
-    `Язык: ${lang}\n` +
-    `Premium: ${isPremium}\n` +
-    `Это бот: ${isBot}\n` +
-    `\n📄 Текст отзыва:\n${text}`
-  );
+    const { firstName, username } = sessions[chat_id] || {};
+    await sendMessage(
+      OWNER_ID,
+      `💬 Отзыв от ${firstName || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`
+    );
+    await sendMessage(chat_id, "✅ Ваш комментарий отправлен владельцу!");
+    return;
   }
-
 
 
   
