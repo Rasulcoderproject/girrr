@@ -206,7 +206,7 @@ async function processGameLogic(chat_id, text) {
 
 
   // Feedback кнопка
-  if (text === "feedback") {
+  if (text === "/feedback") {
     feedbackSessions[chat_id] = true;
     await sendMessage(chat_id, "📝 Пожалуйста, введите ваш комментарий одним сообщением:");
     return;
@@ -233,7 +233,7 @@ async function processGameLogic(chat_id, text) {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
-        [{ text: "feedback" }]
+        [{ text: "/feedback" }]
         
       ],
       resize_keyboard: true,
