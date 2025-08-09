@@ -8,6 +8,8 @@ import fetch from "node-fetch";
 // --- В памяти ---
 const sessions = {};
 const stats = {};
+const feedbackSessions = {};
+
 
 // --- Переменные окружения (обязательно установить на Vercel) ---
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -41,6 +43,14 @@ function safeJson(obj) {
     return String(obj);
   }
 }
+
+
+
+
+
+
+
+
 
 // ---- Основной обработчик ----
 export default async function handler(req, res) {
@@ -176,6 +186,13 @@ async function answerCallbackQuery(callback_query_id) {
   }
 }
 
+
+
+
+
+
+
+
 // ---- Игровая логика (вся, как у тебя) ----
 async function processGameLogic(chat_id, text) {
   const session = sessions[chat_id] || {};
@@ -187,6 +204,43 @@ async function processGameLogic(chat_id, text) {
     if (win) stats[localChatId][game].wins++;
   }
 
+
+  // Feedback кнопка
+  if (text === "Feedback") {
+    feedbackSessions[chat_id] = true;
+    await sendMessage(chat_id, "📝 Пожалуйста, введите ваш комментарий одним сообщением:");
+    return;
+  }
+
+  // Приём отзыва
+  if (feedbackSessions[chat_id]) {
+    delete feedbackSessions[chat_id];
+ 
+     delete feedbackSessions[chat_id];
+
+  const from = sessions[chat_id]?.from || {}; // сохраним полный объект пользователя
+  const firstName = from.first_name || "Без имени";
+  const lastName = from.last_name || "";
+  const username = from.username || "нет";
+  const lang = from.language_code || "неизвестно";
+  const isPremium = from.is_premium ? "Да" : "Нет";
+  const isBot = from.is_bot ? "Да" : "Нет";
+
+  await sendMessage(
+    OWNER_ID,
+    `💬 Отзыв от: ${firstName} ${lastName}\n` +
+    `@${username}\n` +
+    `ID: ${chat_id}\n` +
+    `Язык: ${lang}\n` +
+    `Premium: ${isPremium}\n` +
+    `Это бот: ${isBot}\n` +
+    `\n📄 Текст отзыва:\n${text}`
+  );
+  }
+
+
+
+  
   // /start
   if (text === "/start") {
     sessions[chat_id] = {};
@@ -200,6 +254,9 @@ async function processGameLogic(chat_id, text) {
     return;
   }
 
+
+  
+  
   // /stats - показать статистику
   if (text === "/stats") {
     const userStats = stats[chat_id];
