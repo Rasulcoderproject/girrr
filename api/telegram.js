@@ -233,6 +233,8 @@ async function processGameLogic(chat_id, text) {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
+        [{ text: "Feadback" }]
+        
       ],
       resize_keyboard: true,
     });
