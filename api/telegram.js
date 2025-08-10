@@ -237,27 +237,24 @@ async function processGameLogic(chat_id, text) {
 
   
   // /start
-if (text === "/start") {
-  // Берём имя из объекта сообщения, а не из пустой сессии
-  const firstName = msg.from?.first_name || "Гость";
+  if (text === "/start") {
 
-  // Очищаем/создаём сессию
-  sessions[chat_id] = {};
-
-  // Отправляем приветствие с клавиатурой
-  await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
-    reply_markup: {
+    
+    sessions[chat_id] = {};
+    
+    await sendMessage(chat_id, `👋 Привет! Выбери тему для теста или игру:`, {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
         [{ text: "/feedback" }]
+        
       ],
-      resize_keyboard: true
-    }
-  });
+      resize_keyboard: true,
+    });
+    return;
+  }
 
-  return;
-}
+
   
   
   // /stats - показать статистику
