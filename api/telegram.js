@@ -239,10 +239,10 @@ async function processGameLogic(chat_id, text) {
   // /start
   if (text === "/start") {
 
-    
+    const firstName = msg.from?.first_name || msg.from?.username || "Гость";
     sessions[chat_id] = {};
     
-    await sendMessage(chat_id, `👋 Привет! Выбери тему для теста или игру:`, {
+    await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
