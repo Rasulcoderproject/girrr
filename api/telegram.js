@@ -238,21 +238,20 @@ async function processGameLogic(chat_id, text) {
   
   // /start
   if (text === "/start") {
-  sessions[chat_id] = {};
-
-  await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
-    reply_markup: {
+    sessions[chat_id] = {};
+    
+    await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
         [{ text: "/feedback" }]
+        
       ],
-      resize_keyboard: true
-    }
-  });
+      resize_keyboard: true,
+    });
+    return;
+  }
 
-  return;
-}
 
   
   
