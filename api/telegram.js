@@ -219,7 +219,8 @@ async function processGameLogic(chat_id, text) {
     await sendMessage(
       OWNER_ID,
       `💬 Отзыв от ${firstName || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`,
-      `/reply ${chat_id}`
+      `ID: ${chat_id}\n` +
+      `Текст: ${text}`,
     );
     await sendMessage(chat_id, "✅ Ваш комментарий отправлен скоро с вами свяжется!");
     return;
