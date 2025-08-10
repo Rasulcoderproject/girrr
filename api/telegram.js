@@ -238,7 +238,6 @@ async function processGameLogic(chat_id, text) {
   
   // /start
   if (text === "/start") {
-
     const firstName = msg.from?.first_name || "Гость";
     sessions[chat_id] = {};
     
