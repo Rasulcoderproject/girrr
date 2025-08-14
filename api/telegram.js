@@ -7,8 +7,10 @@ import fetch from "node-fetch";
 
 // --- В памяти ---
 const sessions = {};
+const feed = {};
 const stats = {};
 const feedbackSessions = {};
+
 
 
 // --- Переменные окружения (обязательно установить на Vercel) ---
@@ -193,6 +195,8 @@ async function answerCallbackQuery(callback_query_id) {
 
 
 
+
+
 // ---- Игровая логика (вся, как у тебя) ----
 async function processGameLogic(chat_id, text) {
   const session = sessions[chat_id] || {};
@@ -203,6 +207,40 @@ async function processGameLogic(chat_id, text) {
     stats[localChatId][game].played++;
     if (win) stats[localChatId][game].wins++;
   }
+
+// === Запрос контакта ===
+if (text === "/contact") {
+  feed[chat_id]= true;
+  await sendMessage(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
+    keyboard: [
+      [{ text: "📤 Поделиться контактом", request_contact: true }],
+      [{ text: "/start" }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true
+  });
+  return;
+}
+
+
+
+  // Приём отзыва
+  if (feed[chat_id]) {
+    delete feed[chat_id];
+    const { firstName, username } = sessions[chat_id] || {};
+    await sendMessage(
+      OWNER_ID,
+      `💬 Отзыв от ${firstName || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`
+      
+    );
+
+    await sendMessage(chat_id, "✅ Ваш конткакт!");
+    return;
+  }
+
+
+
+
 
 
   // Feedback кнопка
@@ -246,7 +284,7 @@ async function processGameLogic(chat_id, text) {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
-        [{ text: "/feedback" }]
+        [{ text: "/feedback" }, { text: "📤 Поделиться контактом", request_contact: true }]
         
       ],
       resize_keyboard: true,
@@ -254,7 +292,12 @@ async function processGameLogic(chat_id, text) {
     return;
   }
 
+  if (text === "📤 Поделиться контактом") {
 
+
+      await sendMessage(chat_id, "Получен");
+      return;
+    }
   
   
   // /stats - показать статистику
@@ -273,6 +316,7 @@ async function processGameLogic(chat_id, text) {
     await sendMessage(chat_id, msg);
     return;
   }
+
 
   // Игры меню
   if (text === "Игры 🎲") {
