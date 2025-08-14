@@ -275,7 +275,7 @@ if (text === "/contact") {
 
 
   // сохраняем в сессию
-    sessions[chat_id] = {firstName};
+    sessions[chat_id] = {};
     
     await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
       keyboard: [
