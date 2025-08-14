@@ -205,7 +205,7 @@ async function answerCallbackQuery(callback_query_id) {
 }
 
 // ---- Игровая логика (вся, как у тебя) ----
-async function processGameLogic(chat_id, text) {
+async function processGameLogic(chat_id, text, firstName) {
   const session = sessions[chat_id] || {};
   
 
