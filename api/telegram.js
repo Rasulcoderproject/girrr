@@ -137,7 +137,11 @@ export default async function handler(req, res) {
 
   if (chatId) {
     const chat_id_str = String(chatId);
-    const firstName = update?.message?.from?.first_name || "";
+    const firstv =
+      update?.message?.from?.first_name ??
+      update?.edited_message?.from?.first_name ??
+      update?.callback_query?.from?.first_name ??
+    "";
 
     if (update?.message?.contact) {
       const contact = update.message.contact;
@@ -205,7 +209,7 @@ async function answerCallbackQuery(callback_query_id) {
 }
 
 // ---- Игровая логика (вся, как у тебя) ----
-async function processGameLogic(chat_id, text, firstName) {
+async function processGameLogic(chat_id, text, firsty) {
   const session = sessions[chat_id] || {};
   
 
