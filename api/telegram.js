@@ -11,14 +11,12 @@ const feed = {};
 const stats = {};
 const feedbackSessions = {};
 
-
-
-// --- Переменные окружения (обязательно установить на Vercel) ---
+// --- Переменные окружения ---
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OWNER_ID = String(process.env.MY_TELEGRAM_ID || "");
 
-// Безопасные лимиты (Telegram: ~4096 символов в сообщении)
+// Лимит Telegram (~4096)
 const TELEGRAM_SEND_MAX = 3900;
 
 // ---- Утилиты ----
@@ -32,9 +30,7 @@ function readRawBody(req) {
 
 function chunkString(str, size = TELEGRAM_SEND_MAX) {
   const chunks = [];
-  for (let i = 0; i < str.length; i += size) {
-    chunks.push(str.slice(i, i + size));
-  }
+  for (let i = 0; i < str.length; i += size) chunks.push(str.slice(i, i + size));
   return chunks;
 }
 
@@ -45,14 +41,6 @@ function safeJson(obj) {
     return String(obj);
   }
 }
-
-
-
-
-
-
-
-
 
 // ---- Основной обработчик ----
 export default async function handler(req, res) {
@@ -69,7 +57,7 @@ export default async function handler(req, res) {
 
   console.log("📩 Получен update:", update?.update_id);
 
-  // 1) Если это сообщение от владельца — проверим /reply
+  // 1) Владелец и /reply
   const fromId = String(
     update?.message?.from?.id ??
       update?.edited_message?.from?.id ??
@@ -77,7 +65,6 @@ export default async function handler(req, res) {
       update?.inline_query?.from?.id ??
       ""
   );
-
   const isOwner = fromId && OWNER_ID && fromId === OWNER_ID;
 
   const msgText =
@@ -87,7 +74,6 @@ export default async function handler(req, res) {
     update?.inline_query?.query ??
     "";
 
-  // Обработка команды /reply от владельца
   if (isOwner && typeof msgText === "string" && msgText.startsWith("/reply ")) {
     const parts = msgText.split(" ");
     const targetId = parts[1];
@@ -98,64 +84,53 @@ export default async function handler(req, res) {
       await sendMessage(targetId, replyText);
       await sendMessage(OWNER_ID, `✅ Сообщение отправлено пользователю ${targetId}`);
     }
-    // чтобы не запутывать — не пересылаем owner's /reply владельцу
     return res.status(200).send("ok");
   }
 
-  // 2) Пересылаем владельцу полный JSON апдейта (если апдейт не от владельца)
+  // 2) Пересылка JSON апдейта владельцу
   if (!isOwner && OWNER_ID) {
     const header = `📡 Новое событие (update_id: ${update.update_id ?? "—"})\nСодержимое апдейта (JSON):\n`;
     const body = safeJson(update);
     const payload = header + body;
     const chunks = chunkString(payload, TELEGRAM_SEND_MAX);
     for (const c of chunks) {
-      // Отправляем как моно-кодный блок, используем Markdown (кодовый блок)
-      // Но экранирование тройных backticks не нужно, мы просто шлем куски.
-      // Если parse_mode вызывает проблемы с символами — можно убрать parse_mode или использовать "HTML".
       await sendMessage(OWNER_ID, "```json\n" + c + "\n```", null, "Markdown");
     }
   }
 
-  // 3) Обработка игрового поведения (message, edited_message, callback_query)
-  // Используем текст/данные как событие для игры.
-  // Поддержаны: message.text, edited_message.text, callback_query.data
+  // 3) Игровая логика
   const chatId =
     update?.message?.chat?.id ??
     update?.edited_message?.chat?.id ??
     update?.callback_query?.message?.chat?.id ??
     null;
 
-  // Если есть callback_query — ответим на неё чтобы убрать "крутилку"
-  if (update.callback_query) {
+  if (update?.callback_query) {
     const cqid = update.callback_query.id;
-    try {
-      await answerCallbackQuery(cqid);
-    } catch (e) {
-      // игнорируем ошибку
-    }
+    try { await answerCallbackQuery(cqid); } catch {}
   }
 
   if (chatId) {
     const chat_id_str = String(chatId);
-    const firstv =
+
+    // Единообразно берём имя отправителя
+    const firstName =
       update?.message?.from?.first_name ??
       update?.edited_message?.from?.first_name ??
       update?.callback_query?.from?.first_name ??
       "";
 
+
+    // Контакт
     if (update?.message?.contact) {
       const contact = update.message.contact;
       await sendMessage(chat_id_str, `✅ Спасибо! Я получил твой номер: +${contact.phone_number}`);
       await sendMessage(
-      OWNER_ID,
-      `📞 Новый контакт:\nИмя: ${contact.first_name}\nТелефон: +${contact.phone_number}\nID: ${contact.user_id}`
-    );
-    return res.status(200).send("ok");
-  }
-
-
-
-
+        OWNER_ID,
+        `📞 Новый контакт:\nИмя: ${contact.first_name}\nТелефон: +${contact.phone_number}\nID: ${contact.user_id}`
+      );
+      return res.status(200).send("ok");
+    }
 
     const text =
       update?.message?.text ??
@@ -163,9 +138,9 @@ export default async function handler(req, res) {
       update?.callback_query?.data ??
       "";
 
-    // запускаем игровую логику (в памяти)
     try {
-      await processGameLogic(chat_id_str, String(text || ""));
+      // ⬇️ ПЕРЕДАЁМ firstName в игровую логику
+      await processGameLogic(chat_id_str, String(text || ""), firstName);
     } catch (e) {
       console.error("processGameLogic error:", e);
     }
@@ -176,10 +151,7 @@ export default async function handler(req, res) {
 
 // ---- sendMessage wrapper ----
 async function sendMessage(chatId, text, reply_markup = null, parse_mode = "Markdown") {
-  const body = {
-    chat_id: String(chatId),
-    text: String(text),
-  };
+  const body = { chat_id: String(chatId), text: String(text) };
   if (reply_markup) body.reply_markup = reply_markup;
   if (parse_mode) body.parse_mode = parse_mode;
 
@@ -208,12 +180,9 @@ async function answerCallbackQuery(callback_query_id) {
   }
 }
 
-// ---- Игровая логика (вся, как у тебя) ----
-async function processGameLogic(chat_id, text, firstv) {
+// ---- Игровая логика ----
+async function processGameLogic(chat_id, text, firstName) {
   const session = sessions[chat_id] || {};
-  
-
-
 
   function updateStats(localChatId, game, win) {
     if (!stats[localChatId]) stats[localChatId] = {};
@@ -222,25 +191,19 @@ async function processGameLogic(chat_id, text, firstv) {
     if (win) stats[localChatId][game].wins++;
   }
 
-// === Запрос контакта ===
-if (text === "/contact") {
-  feed[chat_id]= true;
-  await sendMessage(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
-    keyboard: [
-      [{ text: "📤 Поделиться контактом", request_contact: true }],
-      [{ text: "/start" }]
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: true
-  });
-  return;
-}
-
-
-
-
-
-
+  // === Запрос контакта ===
+  if (text === "/contact") {
+    feed[chat_id] = true;
+    await sendMessage(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
+      keyboard: [
+        [{ text: "📤 Поделиться контактом", request_contact: true }],
+        [{ text: "/start" }],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    });
+    return;
+  }
 
   // Feedback кнопка
   if (text === "/feedback") {
@@ -252,63 +215,48 @@ if (text === "/contact") {
   // Приём отзыва
   if (feedbackSessions[chat_id]) {
     delete feedbackSessions[chat_id];
-    const { firstName, username } = sessions[chat_id] || {};
+    const { firstName: fn, username } = sessions[chat_id] || {};
     await sendMessage(
       OWNER_ID,
-      `💬 Отзыв от ${firstName || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`
-      
+      `💬 Отзыв от ${fn || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`
     );
-
-
-
-    await sendMessage(
-      OWNER_ID,
-      `/reply ${chat_id}`
-      
-    );
-
-    await sendMessage(chat_id, "✅ Ваш комментарий отправлен скоро с вами свяжется!");
+    await sendMessage(OWNER_ID, `/reply ${chat_id}`);
+    await sendMessage(chat_id, "✅ Ваш комментарий отправлен, скоро с вами свяжутся!");
     return;
   }
 
-
-
   // /start
   if (text === "/start") {
+    // сохраняем имя в сессию
+    sessions[chat_id] = { firstName };
 
-
-
-  // сохраняем в сессию
-    sessions[chat_id] = {};
-    
-    await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
-      keyboard: [
-        [{ text: "История" }, { text: "Математика" }],
-        [{ text: "Английский" }, { text: "Игры 🎲" }],
-        [{ text: "/feedback" }, { text: "📤 Поделиться контактом", request_contact: true }]
-        
-      ],
-      resize_keyboard: true,
-    });
+    await sendMessage(
+      chat_id,
+      `👋 Привет, ${firstName || "друг"}! Выбери тему для теста или игру:`,
+      {
+        keyboard: [
+          [{ text: "История" }, { text: "Математика" }],
+          [{ text: "Английский" }, { text: "Игры 🎲" }],
+          [{ text: "/feedback" }, { text: "📤 Поделиться контактом", request_contact: true }],
+        ],
+        resize_keyboard: true,
+      }
+    );
     return;
   }
 
   if (text === "📤 Поделиться контактом") {
+    await sendMessage(chat_id, "Получен");
+    return;
+  }
 
-
-      await sendMessage(chat_id, "Получен");
-      return;
-    }
-  
-  
-  // /stats - показать статистику
+  // /stats
   if (text === "/stats") {
     const userStats = stats[chat_id];
     if (!userStats) {
       await sendMessage(chat_id, "Ты ещё не играл ни в одну игру.");
       return;
     }
-
     let msg = "📊 Твоя статистика:\n\n";
     for (const game in userStats) {
       const s = userStats[game];
@@ -317,7 +265,6 @@ if (text === "/contact") {
     await sendMessage(chat_id, msg);
     return;
   }
-
 
   // Игры меню
   if (text === "Игры 🎲") {
@@ -332,7 +279,7 @@ if (text === "/contact") {
     return;
   }
 
-  // Проверка ответа для тестов (История, Математика, Английский)
+  // Проверка ответа для тестов
   if (session.correctAnswer) {
     const userAnswer = text.trim().toUpperCase();
     const correct = session.correctAnswer.toUpperCase();
@@ -393,7 +340,7 @@ D) ...
     return;
   }
 
-  // ===== Игры: Угадай слово =====
+  // ===== Угадай слово =====
   if (text === "Угадай слово") {
     const prompt = `
 Загадай одно существительное (например: тигр, самолёт, лампа и т.д.). Опиши его так, чтобы пользователь попытался угадать, что это. Не называй само слово. В конце добавь: "Загаданное слово: ..." (но это скроем от пользователя).
@@ -442,7 +389,7 @@ D) ...
     return;
   }
 
-  // ===== Игры: Найди ложь =====
+  // ===== Найди ложь =====
   if (text === "Найди ложь") {
     const prompt = `
 Придумай три коротких утверждения на любые темы. Два из них должны быть правдой, одно — ложью. В конце укажи, какое из них ложь (например: "Ложь: №2").
@@ -494,7 +441,7 @@ D) ...
     return;
   }
 
-  // ===== Игры: Продолжи историю =====
+  // ===== Продолжи историю =====
   if (text === "Продолжи историю") {
     const prompt = `
 Придумай короткое начало истории и три возможных продолжения. Варианты продолжения пронумеруй.
@@ -527,7 +474,7 @@ D) ...
 
     let replyText = win ? "🎉 Классное продолжение!" : "❌ Не похоже на вариант из списка.";
 
-    if (win && stats[chat_id]["Продолжи история"].wins >= 5) {
+    if (win && stats[chat_id]["Продолжи историю"].wins >= 5) {
       replyText += "\n🏅 Ачивка: «Сказочник»!";
     }
 
@@ -538,7 +485,7 @@ D) ...
     return;
   }
 
-  // ===== Игры: Шарада =====
+  // ===== Шарада =====
   if (text === "Шарада") {
     const prompt = `
 Придумай одну шараду (загадку), которая состоит из трех частей, каждая часть даёт подсказку, чтобы угадать слово. В конце напиши ответ.
@@ -589,11 +536,11 @@ D) ...
     return;
   }
 
-  // Если ничего не подошло
+  // Фоллбек
   await sendMessage(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.");
 }
 
-// ---- askGPT через OpenRouter (как у тебя) ----
+// ---- askGPT через OpenRouter ----
 async function askGPT(prompt) {
   if (!OPENROUTER_API_KEY) return "Ошибка: нет OPENROUTER_API_KEY";
 
