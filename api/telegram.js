@@ -137,7 +137,7 @@ export default async function handler(req, res) {
 
   if (chatId) {
     const chat_id_str = String(chatId);
-
+    const firstName = update?.message?.from?.first_name || "";
 
     if (update?.message?.contact) {
       const contact = update.message.contact;
@@ -273,10 +273,9 @@ if (text === "/contact") {
   if (text === "/start") {
 
 
-    const firstName = update?.message?.from?.first_name; // только имя без "друг"
 
   // сохраняем в сессию
-    sessions[chat_id] = {firstName};
+    sessions[chat_id] = {};
     
     await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
       keyboard: [
