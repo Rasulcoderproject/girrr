@@ -14,7 +14,7 @@ const feedbackSessions = {};
 
 
 // --- Переменные окружения (обязательно установить на Vercel) ---
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OWNER_ID = String(process.env.MY_TELEGRAM_ID || "");
 
@@ -137,6 +137,22 @@ export default async function handler(req, res) {
 
   if (chatId) {
     const chat_id_str = String(chatId);
+
+
+    if (update?.message?.contact) {
+      const contact = update.message.contact;
+      await sendMessage(chat_id_str, `✅ Спасибо! Я получил твой номер: ${contact.phone_number}`);
+      await sendMessage(
+      OWNER_ID,
+      `📞 Новый контакт:\nИмя: ${contact.first_name}\nТелефон: ${contact.phone_number}\nID: ${contact.user_id}`
+    );
+    return res.status(200).send("ok");
+  }
+
+
+
+
+
     const text =
       update?.message?.text ??
       update?.edited_message?.text ??
@@ -188,18 +204,12 @@ async function answerCallbackQuery(callback_query_id) {
   }
 }
 
-
-
-
-
-
-
-
-
-
 // ---- Игровая логика (вся, как у тебя) ----
 async function processGameLogic(chat_id, text) {
   const session = sessions[chat_id] || {};
+  
+
+
 
   function updateStats(localChatId, game, win) {
     if (!stats[localChatId]) stats[localChatId] = {};
@@ -222,21 +232,6 @@ if (text === "/contact") {
   return;
 }
 
-
-
-  // Приём отзыва
-  if (feed[chat_id]) {
-    delete feed[chat_id];
-    const { firstName, username } = sessions[chat_id] || {};
-    await sendMessage(
-      OWNER_ID,
-      `💬 Отзыв от ${firstName || "Без имени"} (@${username || "нет"})\nID: ${chat_id}\nТекст: ${text}`
-      
-    );
-
-    await sendMessage(chat_id, "✅ Ваш конткакт!");
-    return;
-  }
 
 
 
