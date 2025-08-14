@@ -272,10 +272,13 @@ if (text === "/contact") {
   // /start
   if (text === "/start") {
 
- 
-    sessions[chat_id] = {};
+
+    const firstName = update?.message?.from?.first_name; // только имя без "друг"
+
+  // сохраняем в сессию
+    sessions[chat_id] = {firstName};
     
-    await sendMessage(chat_id, `👋 Привет! Выбери тему для теста или игру:`, {
+    await sendMessage(chat_id, `👋 Привет, ${firstName}! Выбери тему для теста или игру:`, {
       keyboard: [
         [{ text: "История" }, { text: "Математика" }],
         [{ text: "Английский" }, { text: "Игры 🎲" }],
