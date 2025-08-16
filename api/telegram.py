@@ -198,43 +198,97 @@ D) ...
             })
             return
 
-        # ==== Игры: Угадай слово / Найди ложь / Продолжи историю / Шарада ====
-        # (Здесь вставляется твой существующий код игр с безопасными pop, как мы делали ранее)
-        # Например для "Угадай слово":
-        if text == "Угадай слово":
-            prompt = """
+        # ==== Общий обработчик игр ====
+        games_prompts = {
+            "Угадай слово": """
 Загадай одно существительное. Опиши его так, чтобы пользователь попытался угадать. В конце добавь: "Загаданное слово: ...".
 Формат:
 Описание: ...
 Загаданное слово: ...
-            """.strip()
-            reply = await ask_gpt(prompt)
-            match = re.search(r"Загаданное слово:\s*(.+)", reply, re.I)
-            hidden_word = match.group(1).strip().upper() if match else None
-            description = re.sub(r"Загаданное слово:\s*.+", "", reply, flags=re.I).replace("Описание:", "").strip()
-            if not hidden_word:
-                await send_message(chat_id, "⚠️ Не удалось сгенерировать описание. Попробуй ещё.")
-                return
-            sessions[chat_id] = {"game": "Угадай слово", "answer": hidden_word}
-            await send_message(chat_id, f"🧠 Угадай слово:\n\n{description}")
-            return
+            """,
+            "Найди ложь": """
+Придумай три коротких утверждения на любые темы. Два из них правдивые, одно ложное. В конце укажи, какое из них ложь (например: "Ложь: №2").
+Формат:
+1. ...
+2. ...
+3. ...
+Ложь: №...
+            """,
+            "Продолжи историю": """
+Придумай короткое начало истории и три возможных продолжения. Варианты продолжения пронумеруй.
+Формат:
+Начало: ...
+1. ...
+2. ...
+3. ...
+            """,
+            "Шарада": """
+Придумай одну шараду (загадку), которая состоит из трех частей, каждая часть даёт подсказку, чтобы угадать слово. В конце напиши ответ.
+Формат:
+1) ...
+2) ...
+3) ...
+Ответ: ...
+            """
+        }
 
-        if session.get("game"):
-            # Общий обработчик ответов для всех игр
-            game = session.get("game")
-            answer = session.get("answer")
-            if game and answer:
-                user_input = text.strip().upper()
-                win = user_input == answer.upper()
-                update_stats(chat_id, game, win)
-                session.pop("game", None)
-                session.pop("answer", None)
-                reply_text = f"🎉 Правильно! Хочешь сыграть ещё?" if win else f"❌ Неправильно. Было: {answer}\nПопробуешь ещё?"
-                await send_message(chat_id, reply_text, {
-                    "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
-                    "resize_keyboard": True
-                })
+        if text in games_prompts:
+            reply = await ask_gpt(games_prompts[text])
+            answer, description = None, reply
+            if text == "Угадай слово":
+                match = re.search(r"Загаданное слово:\s*(.+)", reply, re.I)
+                answer = match.group(1).strip().upper() if match else None
+                description = re.sub(r"Загаданное слово:\s*.+", "", reply, flags=re.I).replace("Описание:", "").strip()
+                if not answer:
+                    await send_message(chat_id, "⚠️ Не удалось сгенерировать слово. Попробуй ещё.")
+                    return
+                sessions[chat_id] = {"game": text, "answer": answer}
+                await send_message(chat_id, f"🧠 {text}:\n\n{description}")
                 return
+            elif text == "Найди ложь":
+                match = re.search(r"Ложь:\s*№?([1-3])", reply, re.I)
+                answer = match.group(1) if match else None
+                description = re.sub(r"Ложь:\s*№?[1-3]", "", reply, flags=re.I).strip()
+                if not answer:
+                    await send_message(chat_id, "⚠️ Не удалось сгенерировать утверждения. Попробуй ещё.")
+                    return
+                sessions[chat_id] = {"game": text, "answer": answer}
+                await send_message(chat_id, f"🕵️ {text}:\n\n{description}\n\nОтвет введи цифрой (1, 2 или 3).")
+                return
+            elif text == "Продолжи историю":
+                sessions[chat_id] = {"game": text, "answer": None}
+                await send_message(chat_id, f"📖 {text}:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
+                return
+            elif text == "Шарада":
+                match = re.search(r"Ответ:\s*(.+)", reply, re.I)
+                answer = match.group(1).strip().upper() if match else None
+                description = re.sub(r"Ответ:\s*.+", "", reply, flags=re.I).strip()
+                if not answer:
+                    await send_message(chat_id, "⚠️ Не удалось сгенерировать шараду. Попробуй ещё.")
+                    return
+                sessions[chat_id] = {"game": text, "answer": answer}
+                await send_message(chat_id, f"🧩 {text}:\n\n{description}\n\nНапиши свой ответ.")
+                return
+
+        # ==== Ответ на активную игру ====
+        if session.get("game"):
+            game = session.get("game")
+            correct = session.get("answer")
+            user_input = text.strip().upper()
+            win = False
+            if game in ["Продолжи историю"]:
+                # Любой выбор 1-3 считается успешным
+                win = user_input in ["1", "2", "3"]
+            else:
+                win = correct and user_input == correct.upper()
+            update_stats(chat_id, game, win)
+            sessions.pop(chat_id, None)
+            reply_text = f"🎉 Верно!" if win else f"❌ Неправильно. Было: {correct}" if correct else "❌ Попробуй снова."
+            await send_message(chat_id, reply_text, {
+                "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
+                "resize_keyboard": True
+            })
+            return
 
         # ==== Фоллбек ====
         await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
