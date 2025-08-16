@@ -357,6 +357,7 @@ D) ...
     await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
 
 # ---- Webhook обработчик ----
+# ---- Webhook обработчик ----
 @app.post("/api/telegram")
 async def telegram_webhook(request: Request):
     raw = await request.body()
@@ -366,81 +367,91 @@ async def telegram_webhook(request: Request):
         print("Bad JSON:", e)
         return PlainTextResponse("Bad JSON", status_code=400)
 
-    # Определяем from_id
-    from_id = str(
-        update.get("message", {}).get("from", {}).get("id") or
-        update.get("edited_message", {}).get("from", {}).get("id") or
-        update.get("callback_query", {}).get("from", {}).get("id") or
-        update.get("inline_query", {}).get("from", {}).get("id") or ""
-    )
-    is_owner = from_id and OWNER_ID and from_id == OWNER_ID
+    try:
+        # Определяем from_id
+        from_id = str(
+            update.get("message", {}).get("from", {}).get("id") or
+            update.get("edited_message", {}).get("from", {}).get("id") or
+            update.get("callback_query", {}).get("from", {}).get("id") or
+            update.get("inline_query", {}).get("from", {}).get("id") or ""
+        )
+        is_owner = from_id and OWNER_ID and from_id == OWNER_ID
 
-    # Определяем текст сообщения или данные callback
-    msg_text = (
-        update.get("message", {}).get("text") or
-        update.get("edited_message", {}).get("text") or
-        update.get("callback_query", {}).get("data") or
-        update.get("inline_query", {}).get("query") or ""
-    )
+        # Определяем текст сообщения или данные callback
+        msg_text = (
+            update.get("message", {}).get("text") or
+            update.get("edited_message", {}).get("text") or
+            update.get("callback_query", {}).get("data") or
+            update.get("inline_query", {}).get("query") or ""
+        )
 
-    # /reply для владельца
-    if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
-        parts = msg_text.split(" ")
-        target_id = parts[1] if len(parts) > 1 else None
-        reply_text = " ".join(parts[2:]) if len(parts) > 2 else ""
-        if not target_id or not reply_text:
-            await send_message(OWNER_ID, "⚠ Формат: /reply <chat_id> <текст>")
-        else:
-            await send_message(target_id, reply_text)
-            await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
+        # /reply для владельца
+        if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
+            parts = msg_text.split(" ")
+            target_id = parts[1] if len(parts) > 1 else None
+            reply_text = " ".join(parts[2:]) if len(parts) > 2 else ""
+            if not target_id or not reply_text:
+                await send_message(OWNER_ID, "⚠ Формат: /reply <chat_id> <текст>")
+            else:
+                await send_message(target_id, reply_text)
+                await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
+            return PlainTextResponse("ok")
+
+        # Пересылка JSON владельцу (если не он сам)
+        if not is_owner and OWNER_ID:
+            payload = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nJSON:\n{safe_json(update)}"
+            for chunk in chunk_string(payload):
+                await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
+
+        # Определяем chat_id безопасно
+        chat_id = (
+            update.get("message", {}).get("chat", {}).get("id") or
+            update.get("edited_message", {}).get("chat", {}).get("id") or
+            update.get("callback_query", {}).get("message", {}).get("chat", {}).get("id")
+        )
+        if chat_id is None:
+            print("No chat_id in update:", safe_json(update))
+            return PlainTextResponse("ok")  # безопасно пропускаем апдейт без chat_id
+
+        chat_id_str = str(chat_id)
+
+        # Имя пользователя
+        first_name = (
+            update.get("message", {}).get("from", {}).get("first_name") or
+            update.get("edited_message", {}).get("from", {}).get("first_name") or
+            update.get("callback_query", {}).get("from", {}).get("first_name") or
+            ""
+        )
+
+        # Обработка контакта
+        contact = update.get("message", {}).get("contact")
+        if contact:
+            phone = contact.get("phone_number", "")
+            first = contact.get("first_name", "")
+            user_id = contact.get("user_id", "")
+            await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{phone}")
+            if OWNER_ID:
+                await send_message(OWNER_ID, f"📞 Новый контакт:\nИмя: {first}\nТелефон: +{phone}\nID: {user_id}")
+            return PlainTextResponse("ok")
+
+        # Обработка callback_query
+        if "callback_query" in update:
+            cqid = update["callback_query"].get("id")
+            if cqid:
+                await answer_callback_query(cqid)
+
+        # Обработка текстовых сообщений и игр с защитой try/except
+        text = msg_text or ""
+        try:
+            await process_game_logic(chat_id_str, str(text), first_name)
+        except Exception as e:
+            print("process_game_logic error:", e)
+            await send_message(OWNER_ID, f"❌ Ошибка обработки сообщения:\n{text}\nОшибка: {e}")
+
         return PlainTextResponse("ok")
 
-    # Пересылка JSON владельцу
-    if not is_owner and OWNER_ID:
-        payload = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nJSON:\n{safe_json(update)}"
-        for chunk in chunk_string(payload):
-            await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
-
-    # Определяем chat_id безопасно
-    chat_id = (
-        update.get("message", {}).get("chat", {}).get("id") or
-        update.get("edited_message", {}).get("chat", {}).get("id") or
-        update.get("callback_query", {}).get("message", {}).get("chat", {}).get("id")
-    )
-
-    if chat_id is None:
-        print("No chat_id in update:", safe_json(update))
-        return PlainTextResponse("ok")  # безопасно пропускаем апдейт без chat_id
-
-    chat_id_str = str(chat_id)
-
-    # Имя пользователя
-    first_name = (
-        update.get("message", {}).get("from", {}).get("first_name") or
-        update.get("edited_message", {}).get("from", {}).get("first_name") or
-        update.get("callback_query", {}).get("from", {}).get("first_name") or
-        ""
-    )
-
-    # Обработка контакта
-    contact = update.get("message", {}).get("contact")
-    if contact:
-        phone = contact.get("phone_number", "")
-        first = contact.get("first_name", "")
-        user_id = contact.get("user_id", "")
-        await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{phone}")
+    except Exception as e_outer:
+        print("Unexpected webhook error:", e_outer)
         if OWNER_ID:
-            await send_message(OWNER_ID, f"📞 Новый контакт:\nИмя: {first}\nТелефон: +{phone}\nID: {user_id}")
+            await send_message(OWNER_ID, f"❌ Необработанная ошибка webhook:\n{e_outer}")
         return PlainTextResponse("ok")
-
-    # Обработка callback_query
-    if "callback_query" in update:
-        cqid = update["callback_query"].get("id")
-        if cqid:
-            await answer_callback_query(cqid)
-
-    # Обработка текстовых сообщений и игр
-    text = msg_text or ""
-    await process_game_logic(chat_id_str, str(text), first_name)
-
-    return PlainTextResponse("ok")
