@@ -280,82 +280,104 @@ async def process_game_logic(chat_id, text, first_name):
     # Выбор темы для теста
     
     # ===== Найди ложь =====
-    
-    
-    # ===== Найди ложь =====
     if text == "Найди ложь":
-    prompt = """
+        prompt = """
 Придумай три коротких утверждения. Два правдивых, одно ложное. В конце укажи, какое из них ложь.
 Формат:
 1. ...
 2. ...
 3. ...
 Ложь: №...
-    """.strip()
-    reply = await ask_gpt(prompt)
-    await send_message(OWNER_ID, f"DEBUG GPT reply (Найди ложь):\n{reply}")  # для отладки
-
-    # Ищем номер ложного утверждения
-    match = re.search(r"Ложь:\s*№?([1-3])", reply.replace("\n", ""), re.IGNORECASE)
-    false_index = match.group(1) if match else None
-    if not false_index:
-        await send_message(chat_id, "⚠️ Не удалось сгенерировать утверждения. Попробуй ещё.")
+        """.strip()
+        reply = await ask_gpt(prompt)
+        match = re.search(r"Ложь:\s*№?([1-3])", reply, re.IGNORECASE)
+        false_index = match.group(1) if match else None
+        if not false_index:
+            await send_message(chat_id, "⚠️ Не удалось сгенерировать утверждения. Попробуй ещё.")
+            return
+        statement_text = re.sub(r"Ложь:\s*№?[1-3]", "", reply, flags=re.IGNORECASE).strip()
+        sessions[chat_id] = {"game": "Найди ложь", "answer": false_index}
+        await send_message(chat_id, f"🕵️ Найди ложь:\n\n{statement_text}\n\nОтвет введи цифрой (1, 2 или 3).")
         return
 
-    # Убираем строку с ответом, оставляем сами утверждения
-    statement_text = re.sub(r"Ложь:\s*№?[1-3]", "", reply, flags=re.IGNORECASE).strip()
+    if session.get("game") == "Найди ложь":
+        guess = text.strip()
+        correct = session["answer"]
+        sessions.pop(chat_id)
+        win = guess == correct
+        update_local_stats("Найди ложь", win)
+        reply_text = "🎉 Верно! Ты нашёл ложь!" if win else f"❌ Нет, ложь была под номером {correct}. Попробуешь ещё?"
+        await send_message(chat_id, reply_text, {
+            "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
+            "resize_keyboard": True
+        })
+        return
 
-    session = sessions.get(chat_id, {})
-    session.update({"game": "Найди ложь", "answer": false_index})
-    sessions[chat_id] = session
-
-    await send_message(chat_id, f"🕵️ Найди ложь:\n\n{statement_text}\n\nОтвет введи цифрой (1, 2 или 3).")
-    return
-
-# ===== Продолжи историю =====
+    # ===== Продолжи историю =====
     if text == "Продолжи историю":
-    prompt = """
+        prompt = """
 Придумай короткое начало истории и три возможных продолжения. Варианты пронумеруй.
 Формат:
 Начало: ...
 1. ...
 2. ...
 3. ...
-    """.strip()
-    reply = await ask_gpt(prompt)
-    await send_message(OWNER_ID, f"DEBUG GPT reply (Продолжи историю):\n{reply}")  # отладка
+        """.strip()
+        reply = await ask_gpt(prompt)
+        match = re.search(r"Начало:\s*(.+?)(?:\n|$)", reply, re.IGNORECASE)
+        intro = match.group(1).strip() if match else None
+        if not intro:
+            await send_message(chat_id, "⚠️ Не удалось сгенерировать историю. Попробуй ещё.")
+            return
+        sessions[chat_id] = {"game": "Продолжи историю"}
+        await send_message(chat_id, f"📖 Продолжи историю:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
+        return
 
-    session = sessions.get(chat_id, {})
-    session.update({"game": "Продолжи историю"})
-    sessions[chat_id] = session
+    if session.get("game") == "Продолжи историю":
+        choice = text.strip()
+        win = choice in ["1", "2", "3"]
+        sessions.pop(chat_id)
+        update_local_stats("Продолжи историю", win)
+        reply_text = "🎉 Классное продолжение!" if win else "❌ Не похоже на вариант из списка."
+        await send_message(chat_id, reply_text, {
+            "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
+            "resize_keyboard": True
+        })
+        return
 
-    await send_message(chat_id, f"📖 Продолжи историю:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
-    return
-
-# ===== Шарада =====
+    # ===== Шарада =====
     if text == "Шарада":
-    prompt = """
+        prompt = """
 Придумай одну шараду из трёх частей. В конце напиши ответ.
 Формат:
 1) ...
 2) ...
 3) ...
 Ответ: ...
-    """.strip()
-    reply = await ask_gpt(prompt)
-    await send_message(OWNER_ID, f"DEBUG GPT reply (Шарада):\n{reply}")  # отладка
-
-    match = re.search(r"Ответ:\s*(.+)", reply, re.IGNORECASE)
-    answer = match.group(1).strip().upper() if match else None
-    if not answer:
-        await send_message(chat_id, "⚠️ Не удалось сгенерировать шараду. Попробуй ещё.")
+        """.strip()
+        reply = await ask_gpt(prompt)
+        match = re.search(r"Ответ:\s*(.+)", reply, re.IGNORECASE)
+        answer = match.group(1).strip().upper() if match else None
+        if not answer:
+            await send_message(chat_id, "⚠️ Не удалось сгенерировать шараду. Попробуй ещё.")
+            return
+        riddle_text = re.sub(r"Ответ:\s*.+", "", reply, flags=re.IGNORECASE).strip()
+        sessions[chat_id] = {"game": "Шарада", "answer": answer}
+        await send_message(chat_id, f"🧩 Шарада:\n\n{riddle_text}\n\nНапиши свой ответ.")
         return
 
-    riddle_text = re.sub(r"Ответ:\s*.+", "", reply, flags=re.IGNORECASE).strip()
+    if session.get("game") == "Шарада":
+        guess = text.strip().upper()
+        correct = session["answer"]
+        sessions.pop(chat_id)
+        win = guess == correct
+        update_local_stats("Шарада", win)
+        reply_text = "🎉 Молодец! Правильно угадал!" if win else f"❌ Неправильно. Правильный ответ: {correct}. Попробуешь ещё?"
+        await send_message(chat_id, reply_text, {
+            "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
+            "resize_keyboard": True
+        })
+        return
 
-    session = sessions.get(chat_id, {})
-    session.update({"game": "Шарада", "answer": answer})
-    sessions[chat_id] = session
-
-    await send_message(chat_id, f"🧩 Шарада:\n\n{riddle_text}\n\nНапиши свой ответ.")
-    return
+    # Фоллбек
+    await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
