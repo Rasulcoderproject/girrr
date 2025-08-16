@@ -12,7 +12,7 @@ const stats = {};
 const feedbackSessions = {};
 
 // --- Переменные окружения ---
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OWNER_ID = String(process.env.MY_TELEGRAM_ID || "");
 
