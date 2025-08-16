@@ -181,45 +181,14 @@ async def telegram_webhook(req: Request):
 
     return PlainTextResponse("ok")
 
-
 # ---- Игровая логика ----
 async def process_game_logic(chat_id, text, first_name):
-    session = sessions.get(chat_id, {})
-
     def update_stats(local_chat_id, game, win):
         stats.setdefault(local_chat_id, {})
         stats[local_chat_id].setdefault(game, {"played": 0, "wins": 0})
         stats[local_chat_id][game]["played"] += 1
         if win:
             stats[local_chat_id][game]["wins"] += 1
-
-    # --- /contact ---
-    if text == "/contact":
-        feed[chat_id] = True
-        await send_message(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
-            "keyboard": [
-                [{"text": "📤 Поделиться контактом", "request_contact": True}],
-                [{"text": "/start"}]
-            ],
-            "resize_keyboard": True,
-            "one_time_keyboard": True
-        })
-        return
-
-    # --- /feedback ---
-    if text == "/feedback":
-        feedback_sessions[chat_id] = True
-        await send_message(chat_id, "📝 Пожалуйста, введите ваш комментарий одним сообщением:")
-        return
-
-    if feedback_sessions.get(chat_id):
-        feedback_sessions.pop(chat_id, None)
-        fn = sessions.get(chat_id, {}).get("firstName", "")
-        username = sessions.get(chat_id, {}).get("username", "нет")
-        await send_message(OWNER_ID, f"💬 Отзыв от {fn or 'Без имени'} (@{username})\nID: {chat_id}\nТекст: {text}")
-        await send_message(OWNER_ID, f"/reply {chat_id}")
-        await send_message(chat_id, "✅ Ваш комментарий отправлен, скоро с вами свяжутся!")
-        return
 
     # --- /start ---
     if text == "/start":
@@ -234,18 +203,6 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # --- /stats ---
-    if text == "/stats":
-        user_stats = stats.get(chat_id)
-        if not user_stats:
-            await send_message(chat_id, "Ты ещё не играл ни в одну игру.")
-            return
-        msg = "📊 Твоя статистика:\n\n"
-        for game, s in user_stats.items():
-            msg += f"• {game}: сыграно {s['played']}, побед {s['wins']}\n"
-        await send_message(chat_id, msg)
-        return
-
     # --- Игры меню ---
     if text == "Игры 🎲":
         await send_message(chat_id, "Выбери игру:", {
@@ -258,52 +215,6 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # --- Проверка ответа для тестов ---
-    if session.get("correctAnswer"):
-        user_answer = text.strip().upper()
-        correct = session["correctAnswer"].upper()
-        del sessions[chat_id]["correctAnswer"]
-
-        keyboard = [
-            [{"text": "История"}, {"text": "Математика"}],
-            [{"text": "Английский"}, {"text": "Игры 🎲"}]
-        ]
-        if user_answer == correct:
-            await send_message(chat_id, "✅ Правильно! Хочешь ещё вопрос?", {"keyboard": keyboard, "resize_keyboard": True})
-        else:
-            await send_message(chat_id, f"❌ Неправильно. Правильный ответ: {correct}\nПопробуешь ещё?", {"keyboard": keyboard, "resize_keyboard": True})
-        return
-
-    # --- Тесты по теме ---
-    if text in ["История", "Математика", "Английский"]:
-        topic = text
-        prompt = f"""
-Задай один тестовый вопрос с 4 вариантами ответа по теме "{topic}".
-Формат:
-Вопрос: ...
-A) ...
-B) ...
-C) ...
-D) ...
-Правильный ответ: ... (A-D)
-        """.strip()
-        reply = await ask_gpt(prompt)
-        import re
-        match = re.search(r"Правильный ответ:\s*([A-D])", reply, re.IGNORECASE)
-        correctAnswer = match.group(1).upper() if match else None
-        if not correctAnswer:
-            await send_message(chat_id, "⚠️ Не удалось сгенерировать вопрос. Попробуй снова.")
-            return
-        question_without_answer = re.sub(r"Правильный ответ:\s*[A-D]", "", reply, flags=re.IGNORECASE).strip()
-        sessions[chat_id] = {"correctAnswer": correctAnswer}
-        await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_without_answer}", parse_mode="Markdown")
-        return
-
-    # --- Игры (Угадай слово, Найди ложь, Продолжи историю, Шарада) ---
-    # Для компактности повторяем ту же логику, что в JS, используя sessions[chat_id] для состояния игры.
-    # Можно расширять аналогично примерам выше.
-
-
     # ===== Угадай слово =====
     if text == "Угадай слово":
         prompt = """
@@ -313,6 +224,7 @@ D) ...
 Загаданное слово: ...
         """.strip()
         reply = await ask_gpt(prompt)
+        import re
         match = re.search(r"Загаданное слово:\s*(.+)", reply, re.IGNORECASE)
         hidden_word = match.group(1).upper() if match else None
         description = re.sub(r"Загаданное слово:\s*.+", "", reply, flags=re.IGNORECASE).replace("Описание:", "").strip()
@@ -323,15 +235,13 @@ D) ...
         await send_message(chat_id, f"🧠 Угадай слово:\n\n{description}")
         return
 
-    if session.get("game") == "Угадай слово":
+    if sessions.get(chat_id, {}).get("game") == "Угадай слово":
         user_guess = text.strip().upper()
-        correct_answer = session["answer"]
+        correct_answer = sessions[chat_id]["answer"]
         del sessions[chat_id]
         win = user_guess == correct_answer
         update_stats(chat_id, "Угадай слово", win)
         reply_text = f"🎉 Правильно! Хочешь сыграть ещё?" if win else f"❌ Неправильно. Было загадано: {correct_answer}\nПопробуешь ещё?"
-        if win and stats[chat_id]["Угадай слово"]["wins"] >= 5:
-            reply_text += "\n🏅 Поздравляем! Ты получил ачивку: «Мастер угадывания»!"
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
             "resize_keyboard": True
@@ -359,15 +269,13 @@ D) ...
         await send_message(chat_id, f"🕵️ Найди ложь:\n\n{statement_text}\n\nОтвет введи цифрой (1, 2 или 3).")
         return
 
-    if session.get("game") == "Найди ложь":
+    if sessions.get(chat_id, {}).get("game") == "Найди ложь":
         guess = text.strip()
-        correct = session["answer"]
+        correct = sessions[chat_id]["answer"]
         del sessions[chat_id]
         win = guess == correct
         update_stats(chat_id, "Найди ложь", win)
         reply_text = "🎉 Верно! Ты нашёл ложь!" if win else f"❌ Нет, ложь была под номером {correct}. Попробуешь ещё?"
-        if win and stats[chat_id]["Найди ложь"]["wins"] >= 5:
-            reply_text += "\n🏅 Ачивка: «Ловкач»!"
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
             "resize_keyboard": True
@@ -390,18 +298,16 @@ D) ...
         if not intro:
             await send_message(chat_id, "⚠️ Не удалось сгенерировать историю. Попробуй ещё.")
             return
-        sessions[chat_id] = {"game": "Продолжи историю"}
+        sessions[chat_id] = {"game": "Продолжи историю", "story": reply}
         await send_message(chat_id, f"📖 Продолжи историю:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
         return
 
-    if session.get("game") == "Продолжи историю":
+    if sessions.get(chat_id, {}).get("game") == "Продолжи историю":
         choice = text.strip()
         win = choice in ["1", "2", "3"]
         del sessions[chat_id]
         update_stats(chat_id, "Продолжи историю", win)
         reply_text = "🎉 Классное продолжение!" if win else "❌ Не похоже на вариант из списка."
-        if win and stats[chat_id]["Продолжи историю"]["wins"] >= 5:
-            reply_text += "\n🏅 Ачивка: «Сказочник»!"
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
             "resize_keyboard": True
@@ -429,22 +335,18 @@ D) ...
         await send_message(chat_id, f"🧩 Шарада:\n\n{riddle_text}\n\nНапиши свой ответ.")
         return
 
-    if session.get("game") == "Шарада":
+    if sessions.get(chat_id, {}).get("game") == "Шарада":
         guess = text.strip().upper()
-        correct = session["answer"]
+        correct = sessions[chat_id]["answer"]
         del sessions[chat_id]
         win = guess == correct
         update_stats(chat_id, "Шарада", win)
         reply_text = "🎉 Молодец! Правильно угадал!" if win else f"❌ Неправильно. Правильный ответ: {correct}. Попробуешь ещё?"
-        if win and stats[chat_id]["Шарада"]["wins"] >= 5:
-            reply_text += "\n🏅 Ачивка: «Шарадист»!"
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
             "resize_keyboard": True
         })
         return
 
-
-
-
+    # --- если ничего не подошло ---
     await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
