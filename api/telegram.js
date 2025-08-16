@@ -197,7 +197,7 @@ async function processGameLogic(chat_id, text, firstName) {
     await sendMessage(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
       keyboard: [
         [{ text: "📤 Поделиться контактом", request_contact: true }],
-        [{ text: "/start" }],
+        [{ text: "Назад" }],
       ],
       resize_keyboard: true,
       one_time_keyboard: true,
