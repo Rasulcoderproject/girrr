@@ -302,7 +302,7 @@ D) ...
             sessions.pop(chat_id, None)
             reply_text = f"🎉 Верно!" if win else f"❌ Неправильно. Было: {correct}" if correct else "❌ Попробуй снова."
             await send_message(chat_id, reply_text, {
-                "keyboard": [[{"text": "Игры 🎲"}], [{"text": "Назад"}], [{"text": "Назад"}]],
+                "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/stats"}], [{"text": "Назад"}]],
                 "resize_keyboard": True
             })
             return
