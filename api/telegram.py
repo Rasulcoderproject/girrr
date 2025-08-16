@@ -359,13 +359,14 @@ D) ...
 # ---- Webhook обработчик ----
 @app.post("/api/telegram")
 async def telegram_webhook(request: Request):
-    raw = await read_raw_body(request)
+    raw = await request.body()
     try:
         update = json.loads(raw)
     except Exception as e:
         print("Bad JSON:", e)
         return PlainTextResponse("Bad JSON", status_code=400)
 
+    # Определяем from_id
     from_id = str(
         update.get("message", {}).get("from", {}).get("id") or
         update.get("edited_message", {}).get("from", {}).get("id") or
@@ -374,6 +375,7 @@ async def telegram_webhook(request: Request):
     )
     is_owner = from_id and OWNER_ID and from_id == OWNER_ID
 
+    # Определяем текст сообщения или данные callback
     msg_text = (
         update.get("message", {}).get("text") or
         update.get("edited_message", {}).get("text") or
@@ -381,7 +383,7 @@ async def telegram_webhook(request: Request):
         update.get("inline_query", {}).get("query") or ""
     )
 
-    # ---- /reply для владельца ----
+    # /reply для владельца
     if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
         parts = msg_text.split(" ")
         target_id = parts[1] if len(parts) > 1 else None
@@ -393,45 +395,52 @@ async def telegram_webhook(request: Request):
             await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
         return PlainTextResponse("ok")
 
-    # ---- Пересылка JSON владельцу ----
+    # Пересылка JSON владельцу
     if not is_owner and OWNER_ID:
-        header = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nСодержимое апдейта (JSON):\n"
-        payload = header + safe_json(update)
+        payload = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nJSON:\n{safe_json(update)}"
         for chunk in chunk_string(payload):
             await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
 
+    # Определяем chat_id безопасно
     chat_id = (
         update.get("message", {}).get("chat", {}).get("id") or
         update.get("edited_message", {}).get("chat", {}).get("id") or
         update.get("callback_query", {}).get("message", {}).get("chat", {}).get("id")
     )
 
-    # ---- CallbackQuery ----
-    if update.get("callback_query"):
+    if chat_id is None:
+        print("No chat_id in update:", safe_json(update))
+        return PlainTextResponse("ok")  # безопасно пропускаем апдейт без chat_id
+
+    chat_id_str = str(chat_id)
+
+    # Имя пользователя
+    first_name = (
+        update.get("message", {}).get("from", {}).get("first_name") or
+        update.get("edited_message", {}).get("from", {}).get("first_name") or
+        update.get("callback_query", {}).get("from", {}).get("first_name") or
+        ""
+    )
+
+    # Обработка контакта
+    contact = update.get("message", {}).get("contact")
+    if contact:
+        phone = contact.get("phone_number", "")
+        first = contact.get("first_name", "")
+        user_id = contact.get("user_id", "")
+        await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{phone}")
+        if OWNER_ID:
+            await send_message(OWNER_ID, f"📞 Новый контакт:\nИмя: {first}\nТелефон: +{phone}\nID: {user_id}")
+        return PlainTextResponse("ok")
+
+    # Обработка callback_query
+    if "callback_query" in update:
         cqid = update["callback_query"].get("id")
         if cqid:
             await answer_callback_query(cqid)
 
-    if chat_id:
-        chat_id_str = str(chat_id)
-        first_name = (
-            update.get("message", {}).get("from", {}).get("first_name") or
-            update.get("edited_message", {}).get("from", {}).get("first_name") or
-            update.get("callback_query", {}).get("from", {}).get("first_name") or
-            ""
-        )
-
-        # Контакт
-        contact = update.get("message", {}).get("contact")
-        if contact:
-            await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{contact.get('phone_number')}")
-            await send_message(
-                OWNER_ID,
-                f"📞 Новый контакт:\nИмя: {contact.get('first_name')}\nТелефон: +{contact.get('phone_number')}\nID: {contact.get('user_id')}"
-            )
-            return PlainTextResponse("ok")
-
-        text = msg_text
-        await process_game_logic(chat_id_str, str(text or ""), first_name)
+    # Обработка текстовых сообщений и игр
+    text = msg_text or ""
+    await process_game_logic(chat_id_str, str(text), first_name)
 
     return PlainTextResponse("ok")
