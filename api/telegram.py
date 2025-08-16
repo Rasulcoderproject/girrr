@@ -101,7 +101,7 @@ async def process_game_logic(chat_id, text, first_name):
     if text == "/contact":
         feed[chat_id] = True
         await send_message(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
-            "keyboard": [[{"text": "📤 Поделиться контактом", "request_contact": True}], [{"text": "/start"}]],
+            "keyboard": [[{"text": "📤 Поделиться контактом", "request_contact": True}], [{"text": "Назад"}]],
             "resize_keyboard": True,
             "one_time_keyboard": True
         })
@@ -133,6 +133,26 @@ async def process_game_logic(chat_id, text, first_name):
             "resize_keyboard": True
         })
         return
+    
+    
+    
+    # ==== /start ====
+    if text == "Назад":
+        sessions[chat_id] = {"firstName": first_name}
+        await send_message(chat_id, f"{first_name or 'друг'}!, Выбери тему для теста или игру:", {
+            "keyboard": [
+                [{"text": "История"}, {"text": "Математика"}],
+                [{"text": "Английский"}, {"text": "Игры 🎲"}],
+                [{"text": "/feedback"}, {"text": "📤 Поделиться контактом", "request_contact": True}]
+            ],
+            "resize_keyboard": True
+        })
+        return
+
+    
+    
+    
+    
 
     # ==== /stats ====
     if text == "/stats":
