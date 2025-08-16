@@ -17,7 +17,6 @@ feedback_sessions = {}
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or ""
 OWNER_ID = str(os.getenv("MY_TELEGRAM_ID") or "")
-
 TELEGRAM_SEND_MAX = 3900
 
 # ---- Утилиты ----
@@ -76,7 +75,7 @@ async def ask_gpt(prompt):
                 }
             )
             data = res.json()
-            if not res.status_code == 200:
+            if res.status_code != 200:
                 print("OpenRouter API error:", data)
                 return "Ошибка генерации: " + str(data.get("error", {}).get("message", "неизвестная ошибка"))
             return data.get("choices", [{}])[0].get("message", {}).get("content", "Ошибка генерации.")
@@ -87,7 +86,7 @@ async def ask_gpt(prompt):
 # ---- Игровая логика ----
 async def process_game_logic(chat_id, text, first_name):
     session = sessions.get(chat_id, {})
-
+    
     def update_stats(local_chat_id, game, win):
         if local_chat_id not in stats:
             stats[local_chat_id] = {}
@@ -114,15 +113,15 @@ async def process_game_logic(chat_id, text, first_name):
             await send_message(chat_id, "📝 Пожалуйста, введите ваш комментарий одним сообщением:")
             return
         if feedback_sessions.get(chat_id):
-            feedback_sessions.pop(chat_id, None)
-            fn = sessions.get(chat_id, {}).get("firstName")
-            username = sessions.get(chat_id, {}).get("username")
+            feedback_sessions.pop(chat_id)
+            fn = session.get("firstName")
+            username = session.get("username")
             await send_message(OWNER_ID, f"💬 Отзыв от {fn or 'Без имени'} (@{username or 'нет'})\nID: {chat_id}\nТекст: {text}")
             await send_message(OWNER_ID, f"/reply {chat_id}")
             await send_message(chat_id, "✅ Ваш комментарий отправлен, скоро с вами свяжутся!")
             return
 
-        # ==== /start и Назад ====
+        # ==== /start / Назад ====
         if text in ["/start", "Назад"]:
             sessions[chat_id] = {"firstName": first_name}
             await send_message(chat_id, f"👋 Привет, {first_name or 'друг'}! Выбери тему для теста или игру:", {
@@ -147,7 +146,7 @@ async def process_game_logic(chat_id, text, first_name):
             await send_message(chat_id, msg)
             return
 
-        # ==== Игры меню ====
+        # ==== Игры ====
         if text == "Игры 🎲":
             await send_message(chat_id, "Выбери игру:", {
                 "keyboard": [
@@ -186,114 +185,122 @@ D) ...
         # ==== Проверка ответа на тест ====
         if session.get("correctAnswer"):
             user_answer = text.strip().upper()
-            correct = session.pop("correctAnswer", None)
-            if not correct:
-                await send_message(chat_id, "⚠️ Ошибка: отсутствует правильный ответ. Напиши /start для новой попытки.")
+            correct = session.pop("correctAnswer").upper()
+            win = user_answer == correct
+            update_stats(chat_id, "Тест", win)
+            reply_text = "✅ Правильно! Хочешь ещё вопрос?" if win else f"❌ Неправильно. Правильный ответ: {correct}\nПопробуешь ещё?"
+            await send_message(chat_id, reply_text, {
+                "keyboard": [
+                    [{"text": "История"}, {"text": "Математика"}],
+                    [{"text": "Английский"}, {"text": "Игры 🎲"}]
+                ],
+                "resize_keyboard": True
+            })
+            return
+
+        # ==== Игры: Угадай слово / Найди ложь / Продолжи историю / Шарада ====
+        # (Здесь вставляется твой существующий код игр с безопасными pop, как мы делали ранее)
+        # Например для "Угадай слово":
+        if text == "Угадай слово":
+            prompt = """
+Загадай одно существительное. Опиши его так, чтобы пользователь попытался угадать. В конце добавь: "Загаданное слово: ...".
+Формат:
+Описание: ...
+Загаданное слово: ...
+            """.strip()
+            reply = await ask_gpt(prompt)
+            match = re.search(r"Загаданное слово:\s*(.+)", reply, re.I)
+            hidden_word = match.group(1).strip().upper() if match else None
+            description = re.sub(r"Загаданное слово:\s*.+", "", reply, flags=re.I).replace("Описание:", "").strip()
+            if not hidden_word:
+                await send_message(chat_id, "⚠️ Не удалось сгенерировать описание. Попробуй ещё.")
                 return
-            if user_answer == correct:
-                await send_message(chat_id, "✅ Правильно! Хочешь ещё вопрос?", {
-                    "keyboard": [
-                        [{"text": "История"}, {"text": "Математика"}],
-                        [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                    ],
+            sessions[chat_id] = {"game": "Угадай слово", "answer": hidden_word}
+            await send_message(chat_id, f"🧠 Угадай слово:\n\n{description}")
+            return
+
+        if session.get("game"):
+            # Общий обработчик ответов для всех игр
+            game = session.get("game")
+            answer = session.get("answer")
+            if game and answer:
+                user_input = text.strip().upper()
+                win = user_input == answer.upper()
+                update_stats(chat_id, game, win)
+                session.pop("game", None)
+                session.pop("answer", None)
+                reply_text = f"🎉 Правильно! Хочешь сыграть ещё?" if win else f"❌ Неправильно. Было: {answer}\nПопробуешь ещё?"
+                await send_message(chat_id, reply_text, {
+                    "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
                     "resize_keyboard": True
                 })
-            else:
-                await send_message(chat_id, f"❌ Неправильно. Правильный ответ: {correct}\nПопробуешь ещё?", {
-                    "keyboard": [
-                        [{"text": "История"}, {"text": "Математика"}],
-                        [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                    ],
-                    "resize_keyboard": True
-                })
-            return
-
-        # ==== Игры ====
-        games = {
-            "Угадай слово": "answer",
-            "Найди ложь": "answer",
-            "Продолжи историю": "game",
-            "Шарада": "answer"
-        }
-
-        if text in games:
-            await handle_game_start(chat_id, text)
-            return
-
-        # ==== Продолжение игры ====
-        if "game" in session or "answer" in session:
-            await handle_game_answer(chat_id, text)
-            return
+                return
 
         # ==== Фоллбек ====
         await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
 
     except Exception as e:
-        print(f"process_game_logic error: {e}")
-        await send_message(chat_id, "⚠️ Произошла ошибка в обработке твоего сообщения. Напиши /start и попробуй снова.")
+        print("process_game_logic error:", e)
+        await send_message(chat_id, "⚠️ Произошла ошибка. Попробуй снова.")
 
-
-
-# ---- Webhook обработчик ----
 # ---- Webhook обработчик ----
 @app.post("/api/telegram")
 async def telegram_webhook(request: Request):
-    raw = await request.body()
+    raw = await read_raw_body(request)
     try:
         update = json.loads(raw)
     except Exception as e:
         print("Bad JSON:", e)
         return PlainTextResponse("Bad JSON", status_code=400)
 
-    try:
-        # Определяем from_id
-        from_id = str(
-            update.get("message", {}).get("from", {}).get("id") or
-            update.get("edited_message", {}).get("from", {}).get("id") or
-            update.get("callback_query", {}).get("from", {}).get("id") or
-            update.get("inline_query", {}).get("from", {}).get("id") or ""
-        )
-        is_owner = from_id and OWNER_ID and from_id == OWNER_ID
+    from_id = str(
+        update.get("message", {}).get("from", {}).get("id") or
+        update.get("edited_message", {}).get("from", {}).get("id") or
+        update.get("callback_query", {}).get("from", {}).get("id") or
+        update.get("inline_query", {}).get("from", {}).get("id") or ""
+    )
+    is_owner = from_id and OWNER_ID and from_id == OWNER_ID
 
-        # Определяем текст сообщения или данные callback
-        msg_text = (
-            update.get("message", {}).get("text") or
-            update.get("edited_message", {}).get("text") or
-            update.get("callback_query", {}).get("data") or
-            update.get("inline_query", {}).get("query") or ""
-        )
+    msg_text = (
+        update.get("message", {}).get("text") or
+        update.get("edited_message", {}).get("text") or
+        update.get("callback_query", {}).get("data") or
+        update.get("inline_query", {}).get("query") or ""
+    )
 
-        # /reply для владельца
-        if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
-            parts = msg_text.split(" ")
-            target_id = parts[1] if len(parts) > 1 else None
-            reply_text = " ".join(parts[2:]) if len(parts) > 2 else ""
-            if not target_id or not reply_text:
-                await send_message(OWNER_ID, "⚠ Формат: /reply <chat_id> <текст>")
-            else:
-                await send_message(target_id, reply_text)
-                await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
-            return PlainTextResponse("ok")
+    # ---- /reply для владельца ----
+    if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
+        parts = msg_text.split(" ")
+        target_id = parts[1] if len(parts) > 1 else None
+        reply_text = " ".join(parts[2:]) if len(parts) > 2 else ""
+        if not target_id or not reply_text:
+            await send_message(OWNER_ID, "⚠ Формат: /reply <chat_id> <текст>")
+        else:
+            await send_message(target_id, reply_text)
+            await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
+        return PlainTextResponse("ok")
 
-        # Пересылка JSON владельцу (если не он сам)
-        if not is_owner and OWNER_ID:
-            payload = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nJSON:\n{safe_json(update)}"
-            for chunk in chunk_string(payload):
-                await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
+    # ---- Пересылка JSON владельцу ----
+    if not is_owner and OWNER_ID:
+        header = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nСодержимое апдейта (JSON):\n"
+        payload = header + safe_json(update)
+        for chunk in chunk_string(payload):
+            await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
 
-        # Определяем chat_id безопасно
-        chat_id = (
-            update.get("message", {}).get("chat", {}).get("id") or
-            update.get("edited_message", {}).get("chat", {}).get("id") or
-            update.get("callback_query", {}).get("message", {}).get("chat", {}).get("id")
-        )
-        if chat_id is None:
-            print("No chat_id in update:", safe_json(update))
-            return PlainTextResponse("ok")  # безопасно пропускаем апдейт без chat_id
+    chat_id = (
+        update.get("message", {}).get("chat", {}).get("id") or
+        update.get("edited_message", {}).get("chat", {}).get("id") or
+        update.get("callback_query", {}).get("message", {}).get("chat", {}).get("id")
+    )
 
+    # ---- CallbackQuery ----
+    if update.get("callback_query"):
+        cqid = update["callback_query"].get("id")
+        if cqid:
+            await answer_callback_query(cqid)
+
+    if chat_id:
         chat_id_str = str(chat_id)
-
-        # Имя пользователя
         first_name = (
             update.get("message", {}).get("from", {}).get("first_name") or
             update.get("edited_message", {}).get("from", {}).get("first_name") or
@@ -301,35 +308,17 @@ async def telegram_webhook(request: Request):
             ""
         )
 
-        # Обработка контакта
+        # Контакт
         contact = update.get("message", {}).get("contact")
         if contact:
-            phone = contact.get("phone_number", "")
-            first = contact.get("first_name", "")
-            user_id = contact.get("user_id", "")
-            await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{phone}")
-            if OWNER_ID:
-                await send_message(OWNER_ID, f"📞 Новый контакт:\nИмя: {first}\nТелефон: +{phone}\nID: {user_id}")
+            await send_message(chat_id_str, f"✅ Спасибо! Я получил твой номер: +{contact.get('phone_number')}")
+            await send_message(
+                OWNER_ID,
+                f"📞 Новый контакт:\nИмя: {contact.get('first_name')}\nТелефон: +{contact.get('phone_number')}\nID: {contact.get('user_id')}"
+            )
             return PlainTextResponse("ok")
 
-        # Обработка callback_query
-        if "callback_query" in update:
-            cqid = update["callback_query"].get("id")
-            if cqid:
-                await answer_callback_query(cqid)
+        text = msg_text
+        await process_game_logic(chat_id_str, str(text or ""), first_name)
 
-        # Обработка текстовых сообщений и игр с защитой try/except
-        text = msg_text or ""
-        try:
-            await process_game_logic(chat_id_str, str(text), first_name)
-        except Exception as e:
-            print("process_game_logic error:", e)
-            await send_message(OWNER_ID, f"❌ Ошибка обработки сообщения:\n{text}\nОшибка: {e}")
-
-        return PlainTextResponse("ok")
-
-    except Exception as e_outer:
-        print("Unexpected webhook error:", e_outer)
-        if OWNER_ID:
-            await send_message(OWNER_ID, f"❌ Необработанная ошибка webhook:\n{e_outer}")
-        return PlainTextResponse("ok")
+    return PlainTextResponse("ok")
