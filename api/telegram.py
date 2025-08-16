@@ -278,9 +278,12 @@ async def process_game_logic(chat_id, text, first_name):
         return
 
     # Выбор темы для теста
+    
+    
+    # Выбор темы для теста
     if text in ["История", "Математика", "Английский"]:
         topic = text
-        prompt = f"""
+    prompt = f"""
 Задай один тестовый вопрос с 4 вариантами ответа по теме "{topic}".
 Формат:
 Вопрос: ...
@@ -289,51 +292,44 @@ B) ...
 C) ...
 D) ...
 Правильный ответ: ... (A-D)
-        """.strip()
-        reply = await ask_gpt(prompt)
-        match = re.search(r"Правильный ответ:\s*([A-D])", reply, re.IGNORECASE)
-        correct_answer = match.group(1).upper() if match else None
-        if not correct_answer:
-            await send_message(chat_id, "⚠️ Не удалось сгенерировать вопрос. Попробуй снова.")
-            return
-        question_text = re.sub(r"Правильный ответ:\s*[A-D]", "", reply, flags=re.IGNORECASE).strip()
-        sessions[chat_id] = {"correctAnswer": correct_answer}
-        await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_text}", parse_mode="Markdown")
+    """.strip()
+
+    reply = await ask_gpt(prompt)
+    print("GPT вернул:\n", reply)  # <-- лог для проверки
+
+    # Более гибкая регулярка
+    match = re.search(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*([A-D])", reply, re.IGNORECASE)
+    correct_answer = match.group(1).upper() if match else None
+
+    if not correct_answer:
+        await send_message(chat_id, f"⚠️ Не удалось сгенерировать вопрос. Попробуй снова.\nGPT вернул:\n{reply[:300]}")
         return
 
-    # ===== Угадай слово =====
-    if text == "Угадай слово":
-        prompt = """
-Загадай одно существительное. Опиши его так, чтобы пользователь попытался угадать, что это. Не называй само слово.
-В конце добавь: "Загаданное слово: ..." (скроем от пользователя).
-Формат:
-Описание: ...
-Загаданное слово: ...
-        """.strip()
-        reply = await ask_gpt(prompt)
-        match = re.search(r"Загаданное слово:\s*(.+)", reply, re.IGNORECASE)
-        hidden_word = match.group(1).strip().upper() if match else None
-        description = re.sub(r"Загаданное слово:\s*.+", "", reply, flags=re.IGNORECASE).replace("Описание:", "").strip()
-        if not hidden_word:
-            await send_message(chat_id, "⚠️ Не удалось сгенерировать описание. Попробуй ещё.")
-            return
-        sessions[chat_id] = {"game": "Угадай слово", "answer": hidden_word}
-        await send_message(chat_id, f"🧠 Угадай слово:\n\n{description}")
-        return
+    # Убираем строку с правильным ответом, оставляем только текст вопроса
+    question_text = re.sub(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*[A-D]", "", reply, flags=re.IGNORECASE).strip()
 
-    if session.get("game") == "Угадай слово":
-        user_guess = text.strip().upper()
-        correct_answer = session["answer"]
-        sessions.pop(chat_id)
-        win = user_guess == correct_answer
-        update_local_stats("Угадай слово", win)
-        reply_text = f"🎉 Правильно! Хочешь сыграть ещё?" if win else f"❌ Неправильно. Было загадано: {correct_answer}\nПопробуешь ещё?"
-        await send_message(chat_id, reply_text, {
-            "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
-            "resize_keyboard": True
-        })
-        return
+    # Сохраняем сессию без удаления других данных
+    session = sessions.get(chat_id, {})
+    session.update({"correctAnswer": correct_answer, "topic": topic})
+    sessions[chat_id] = session
 
+    await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_text}", parse_mode="Markdown")
+    return
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     # ===== Найди ложь =====
     if text == "Найди ложь":
         prompt = """
