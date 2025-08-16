@@ -20,6 +20,12 @@ OWNER_ID = str(os.getenv("MY_TELEGRAM_ID", ""))
 
 TELEGRAM_SEND_MAX = 3900
 
+# --- Проверка токена ---
+if not TELEGRAM_BOT_TOKEN:
+    print("⚠ TELEGRAM_BOT_TOKEN не установлен!")
+if not OWNER_ID:
+    print("⚠ MY_TELEGRAM_ID не установлен!")
+
 # ---- Утилиты ----
 async def read_raw_body(req: Request):
     return await req.body()
@@ -34,13 +40,13 @@ def safe_json(obj):
         return str(obj)
 
 # ---- Telegram API ----
-async def send_message(chat_id, text, reply_markup=None, parse_mode="Markdown"):
+async def send_message(chat_id, text, reply_markup=None, parse_mode=None):
     payload = {"chat_id": str(chat_id), "text": str(text)}
     if reply_markup:
         payload["reply_markup"] = reply_markup
     if parse_mode:
         payload["parse_mode"] = parse_mode
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=20) as client:
         try:
             await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json=payload)
         except Exception as e:
@@ -61,7 +67,7 @@ async def ask_gpt(prompt):
     if not OPENROUTER_API_KEY:
         return "Ошибка: нет OPENROUTER_API_KEY"
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             res = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
@@ -95,7 +101,7 @@ async def telegram_webhook(req: Request):
 
     print("📩 Получен update:", update.get("update_id"))
 
-    # Владелец и /reply
+    # Определяем ID отправителя
     from_id = str(
         update.get("message", {}).get("from", {}).get("id") or
         update.get("edited_message", {}).get("from", {}).get("id") or
@@ -113,7 +119,8 @@ async def telegram_webhook(req: Request):
         ""
     )
 
-    if is_owner and isinstance(msg_text, str) and msg_text.startswith("/reply "):
+    # --- Команда /reply владельца ---
+    if is_owner and msg_text.startswith("/reply "):
         parts = msg_text.split(" ")
         target_id = parts[1] if len(parts) > 1 else None
         reply_text = " ".join(parts[2:]) if len(parts) > 2 else None
@@ -124,7 +131,7 @@ async def telegram_webhook(req: Request):
             await send_message(OWNER_ID, f"✅ Сообщение отправлено пользователю {target_id}")
         return PlainTextResponse("ok")
 
-    # Пересылка JSON апдейта владельцу
+    # --- Пересылка JSON апдейта владельцу ---
     if not is_owner and OWNER_ID:
         header = f"📡 Новое событие (update_id: {update.get('update_id', '—')})\nСодержимое апдейта (JSON):\n"
         body = safe_json(update)
@@ -132,7 +139,7 @@ async def telegram_webhook(req: Request):
         for chunk in chunk_string(payload, TELEGRAM_SEND_MAX):
             await send_message(OWNER_ID, f"```json\n{chunk}\n```", parse_mode="Markdown")
 
-    # Игровая логика
+    # --- Игровая логика ---
     chat_id = (
         update.get("message", {}).get("chat", {}).get("id") or
         update.get("edited_message", {}).get("chat", {}).get("id") or
@@ -161,21 +168,14 @@ async def telegram_webhook(req: Request):
             )
             return PlainTextResponse("ok")
 
-        text = (
-            update.get("message", {}).get("text") or
-            update.get("edited_message", {}).get("text") or
-            update.get("callback_query", {}).get("data") or
-            ""
-        )
-
+        text = msg_text or ""
         try:
-            await process_game_logic(chat_id_str, str(text or ""), first_name)
+            await process_game_logic(chat_id_str, text, first_name)
         except Exception as e:
             print("process_game_logic error:", e)
 
     return PlainTextResponse("ok")
 
-# ---- Игровая логика ----
 # ---- Игровая логика ----
 async def process_game_logic(chat_id, text, first_name):
     session = sessions.get(chat_id, {})
@@ -189,7 +189,7 @@ async def process_game_logic(chat_id, text, first_name):
         if win:
             stats[chat_id][game]["wins"] += 1
 
-    # === Запрос контакта ===
+    # --- Команды ---
     if text == "/contact":
         feed[chat_id] = True
         await send_message(chat_id, "📱 Пожалуйста, поделитесь своим номером телефона:", {
@@ -228,21 +228,6 @@ async def process_game_logic(chat_id, text, first_name):
             ],
             "resize_keyboard": True
         })
-        return
-
-    if text == "📤 Поделиться контактом":
-        await send_message(chat_id, "Получен")
-        return
-
-    if text == "/stats":
-        user_stats = stats.get(chat_id)
-        if not user_stats:
-            await send_message(chat_id, "Ты ещё не играл ни в одну игру.")
-            return
-        msg = "📊 Твоя статистика:\n\n"
-        for game, s in user_stats.items():
-            msg += f"• {game}: сыграно {s['played']}, побед {s['wins']}\n"
-        await send_message(chat_id, msg)
         return
 
     if text == "Игры 🎲":
@@ -307,11 +292,6 @@ async def process_game_logic(chat_id, text, first_name):
         """.strip()
         reply = await ask_gpt(prompt)
         print("GPT reply (Продолжи историю):", reply)
-        match = re.search(r"Начало[:\s\-]*(.+?)(?:\n|$)", reply, re.IGNORECASE)
-        intro = match.group(1).strip() if match else None
-        if not intro:
-            await send_message(chat_id, "⚠️ Не удалось сгенерировать историю. Попробуй ещё.")
-            return
         sessions[chat_id] = {"game": "Продолжи историю", "story": reply}
         await send_message(chat_id, f"📖 Продолжи историю:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
         return
@@ -363,5 +343,17 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # Фоллбек
+    # --- Статистика ---
+    if text == "/stats":
+        user_stats = stats.get(chat_id)
+        if not user_stats:
+            await send_message(chat_id, "Ты ещё не играл ни в одну игру.")
+            return
+        msg = "📊 Твоя статистика:\n\n"
+        for game, s in user_stats.items():
+            msg += f"• {game}: сыграно {s['played']}, побед {s['wins']}\n"
+        await send_message(chat_id, msg)
+        return
+
+    # --- Фоллбек ---
     await send_message(chat_id, "⚠️ Напиши /start, чтобы начать сначала или выбери команду из меню.")
