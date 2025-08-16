@@ -122,7 +122,7 @@ async def process_game_logic(chat_id, text, first_name):
             return
 
         # ==== /start / Назад ====
-        if text in ["/start", "Назад"]:
+        if text in ["/start"]:
             sessions[chat_id] = {"firstName": first_name}
             await send_message(chat_id, f"👋 Привет, {first_name or 'друг'}! Выбери тему для теста или игру:", {
                 "keyboard": [
@@ -133,6 +133,23 @@ async def process_game_logic(chat_id, text, first_name):
                 "resize_keyboard": True
             })
             return
+        
+        
+        
+        if text in ["/start"]:
+            sessions[chat_id] = {"firstName": first_name}
+            await send_message(chat_id, f"{first_name or 'друг'}!, Выбери тему для теста или игру:", {
+                "keyboard": [
+                    [{"text": "История"}, {"text": "Математика"}],
+                    [{"text": "Английский"}, {"text": "Игры 🎲"}],
+                    [{"text": "/feedback"}, {"text": "📤 Поделиться контактом", "request_contact": True}]
+                ],
+                "resize_keyboard": True
+            })
+            return
+
+        
+        
 
         # ==== /stats ====
         if text == "/stats":
@@ -285,7 +302,7 @@ D) ...
             sessions.pop(chat_id, None)
             reply_text = f"🎉 Верно!" if win else f"❌ Неправильно. Было: {correct}" if correct else "❌ Попробуй снова."
             await send_message(chat_id, reply_text, {
-                "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
+                "keyboard": [[{"text": "Игры 🎲"}],[{"text": "/stats"}]], [{"text": "Назад"}]],
                 "resize_keyboard": True
             })
             return
