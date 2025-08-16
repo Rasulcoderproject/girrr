@@ -188,7 +188,8 @@ C) ...
 D) ...
 
 Правильный ответ: ... 
-            """.strip()
+
+            """
             reply = await ask_gpt(prompt)
             match = re.search(r"Правильный ответ:\s*([A-D])", reply, re.I)
             correct_answer = match.group(1).upper() if match else None
