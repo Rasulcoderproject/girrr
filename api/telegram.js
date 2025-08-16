@@ -12,7 +12,7 @@ const stats = {};
 const feedbackSessions = {};
 
 // --- Переменные окружения ---
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_TOKEN;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OWNER_ID = String(process.env.MY_TELEGRAM_ID || "");
 
@@ -205,6 +205,8 @@ async function processGameLogic(chat_id, text, firstName) {
     return;
   }
 
+  
+
   // Feedback кнопка
   if (text === "/feedback") {
     feedbackSessions[chat_id] = true;
@@ -245,10 +247,28 @@ async function processGameLogic(chat_id, text, firstName) {
     return;
   }
 
-  if (text === "📤 Поделиться контактом") {
-    await sendMessage(chat_id, "Получен");
+
+
+  if (text === "Назад") {
+    // сохраняем имя в сессию
+    sessions[chat_id] = { firstName };
+
+    await sendMessage(
+      chat_id,
+      `${firstName || "друг"}!, Выбери тему для теста или игру:`,
+      {
+        keyboard: [
+          [{ text: "История" }, { text: "Математика" }],
+          [{ text: "Английский" }, { text: "Игры 🎲" }],
+          [{ text: "/feedback" }, { text: "📤 Поделиться контактом", request_contact: true }],
+        ],
+        resize_keyboard: true,
+      }
+    );
     return;
   }
+
+
 
   // /stats
   if (text === "/stats") {
@@ -272,7 +292,7 @@ async function processGameLogic(chat_id, text, firstName) {
       keyboard: [
         [{ text: "Угадай слово" }, { text: "Найди ложь" }],
         [{ text: "Продолжи историю" }, { text: "Шарада" }],
-        [{ text: "/start" }, { text: "/stats" }],
+        [{ text: "Назад" }, { text: "/stats" }],
       ],
       resize_keyboard: true,
     });
