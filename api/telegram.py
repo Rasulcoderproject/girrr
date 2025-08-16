@@ -172,7 +172,7 @@ async def process_game_logic(chat_id, text, first_name):
             "keyboard": [
                 [{"text": "Угадай слово"}, {"text": "Найди ложь"}],
                 [{"text": "Продолжи историю"}, {"text": "Шарада"}],
-                [{"text": "/start"}, {"text": "/stats"}]
+                [{"text": "Назад"}, {"text": "/stats"}]
             ],
             "resize_keyboard": True
         })
