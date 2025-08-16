@@ -254,82 +254,38 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # Проверка ответа для тестов
-    if session.get("correctAnswer"):
-        user_answer = text.strip().upper()
-        correct = session["correctAnswer"].upper()
-        sessions[chat_id].pop("correctAnswer")
-        if user_answer == correct:
-            await send_message(chat_id, "✅ Правильно! Хочешь ещё вопрос?", {
-                "keyboard": [
-                    [{"text": "История"}, {"text": "Математика"}],
-                    [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                ],
-                "resize_keyboard": True
-            })
-        else:
-            await send_message(chat_id, f"❌ Неправильно. Правильный ответ: {correct}\nПопробуешь ещё?", {
-                "keyboard": [
-                    [{"text": "История"}, {"text": "Математика"}],
-                    [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                ],
-                "resize_keyboard": True
-            })
-        return
-
-    # Выбор темы для теста
-    
-    
-    # Выбор темы для теста
-
-    # ===== Выбор темы для теста =====
+    # ===== Генерация тестового вопроса =====
     if text in ["История", "Математика", "Английский"]:
-    topic = text
-    prompt = f"""
-    Задай один тестовый вопрос с 4 вариантами ответа по теме "{topic}".
-    Формат:
-    Вопрос: ...
-    A) ...
-    B) ...
-    C) ...
-    D) ...
-    Правильный ответ: ... (A-D)
-    """.strip()
+        topic = text
+        prompt = f"""
+Задай один тестовый вопрос с 4 вариантами ответа по теме "{topic}".
+Формат:
+Вопрос: ...
+A) ...
+B) ...
+C) ...
+D) ...
+Правильный ответ: ... (A-D)
+        """.strip()
 
-    reply = await ask_gpt(prompt)
-    print("GPT вернул:\n", reply)  # лог для проверки
+        reply = await ask_gpt(prompt)
+        print("GPT вернул:\n", reply)
 
-    # Извлекаем правильный ответ
-    match = re.search(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*([A-D])", reply, re.IGNORECASE)
-    correct_answer = match.group(1).upper() if match else None
+        match = re.search(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*([A-D])", reply, re.IGNORECASE)
+        correct_answer = match.group(1).upper() if match else None
 
-    if not correct_answer:
-        await send_message(chat_id, f"⚠️ Не удалось сгенерировать вопрос. Попробуй снова.\nGPT вернул:\n{reply[:300]}")
+        if not correct_answer:
+            await send_message(chat_id, f"⚠️ Не удалось сгенерировать вопрос. Попробуй снова.\nGPT вернул:\n{reply[:300]}")
+            return
+
+        question_text = re.sub(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*[A-D]", "", reply, flags=re.IGNORECASE).strip()
+
+        session.update({"correctAnswer": correct_answer, "topic": topic})
+        sessions[chat_id] = session
+
+        await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_text}", parse_mode="Markdown")
         return
 
-    # Убираем строку с правильным ответом, оставляем текст вопроса
-    question_text = re.sub(r"(?:Правильный ответ|Ответ|Correct Answer)[:\-]?\s*[A-D]", "", reply, flags=re.IGNORECASE).strip()
-
-    # Сохраняем в сессию
-    session = sessions.get(chat_id, {})
-    session.update({"correctAnswer": correct_answer, "topic": topic})
-    sessions[chat_id] = session
-
-    await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_text}", parse_mode="Markdown")
-    return
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     # ===== Найди ложь =====
     if text == "Найди ложь":
         prompt = """
