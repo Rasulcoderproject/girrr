@@ -136,7 +136,7 @@ async def process_game_logic(chat_id, text, first_name):
         
         
         
-        if text in ["/start"]:
+        if text in ["Назад"]:
             sessions[chat_id] = {"firstName": first_name}
             await send_message(chat_id, f"{first_name or 'друг'}!, Выбери тему для теста или игру:", {
                 "keyboard": [
