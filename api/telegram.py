@@ -176,11 +176,18 @@ async def telegram_webhook(req: Request):
     return PlainTextResponse("ok")
 
 # ---- Игровая логика ----
+# ---- Игровая логика ----
 async def process_game_logic(chat_id, text, first_name):
     session = sessions.get(chat_id, {})
 
     def update_local_stats(game, win):
-        update_stats(chat_id, game, win)
+        if chat_id not in stats:
+            stats[chat_id] = {}
+        if game not in stats[chat_id]:
+            stats[chat_id][game] = {"played": 0, "wins": 0}
+        stats[chat_id][game]["played"] += 1
+        if win:
+            stats[chat_id][game]["wins"] += 1
 
     # === Запрос контакта ===
     if text == "/contact":
@@ -195,25 +202,22 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # === Feedback кнопка ===
     if text == "/feedback":
         feedback_sessions[chat_id] = True
         await send_message(chat_id, "📝 Пожалуйста, введите ваш комментарий одним сообщением:")
         return
 
-    # Приём отзыва
     if feedback_sessions.get(chat_id):
         feedback_sessions.pop(chat_id)
         user_data = sessions.get(chat_id, {})
         await send_message(
             OWNER_ID,
-            f"💬 Отзыв от {user_data.get('firstName', 'Без имени')} (@{user_data.get('username', 'нет')})\nID: {chat_id}\nТекст: {text}"
+            f"💬 Отзыв от {user_data.get('firstName', 'Без имени')} (@{user_data.get('username', 'нет')})\n"
+            f"ID: {chat_id}\nТекст: {text}"
         )
-        await send_message(OWNER_ID, f"/reply {chat_id}")
         await send_message(chat_id, "✅ Ваш комментарий отправлен, скоро с вами свяжутся!")
         return
 
-    # /start
     if text == "/start":
         sessions[chat_id] = {"firstName": first_name}
         await send_message(chat_id, f"👋 Привет, {first_name or 'друг'}! Выбери тему для теста или игру:", {
@@ -230,7 +234,6 @@ async def process_game_logic(chat_id, text, first_name):
         await send_message(chat_id, "Получен")
         return
 
-    # /stats
     if text == "/stats":
         user_stats = stats.get(chat_id)
         if not user_stats:
@@ -242,7 +245,6 @@ async def process_game_logic(chat_id, text, first_name):
         await send_message(chat_id, msg)
         return
 
-    # Игры меню
     if text == "Игры 🎲":
         await send_message(chat_id, "Выбери игру:", {
             "keyboard": [
@@ -254,31 +256,6 @@ async def process_game_logic(chat_id, text, first_name):
         })
         return
 
-    # Проверка ответа для тестов
-    if session.get("correctAnswer"):
-        user_answer = text.strip().upper()
-        correct = session["correctAnswer"].upper()
-        sessions[chat_id].pop("correctAnswer")
-        if user_answer == correct:
-            await send_message(chat_id, "✅ Правильно! Хочешь ещё вопрос?", {
-                "keyboard": [
-                    [{"text": "История"}, {"text": "Математика"}],
-                    [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                ],
-                "resize_keyboard": True
-            })
-        else:
-            await send_message(chat_id, f"❌ Неправильно. Правильный ответ: {correct}\nПопробуешь ещё?", {
-                "keyboard": [
-                    [{"text": "История"}, {"text": "Математика"}],
-                    [{"text": "Английский"}, {"text": "Игры 🎲"}]
-                ],
-                "resize_keyboard": True
-            })
-        return
-
-    # Выбор темы для теста
-    
     # ===== Найди ложь =====
     if text == "Найди ложь":
         prompt = """
@@ -290,23 +267,28 @@ async def process_game_logic(chat_id, text, first_name):
 Ложь: №...
         """.strip()
         reply = await ask_gpt(prompt)
-        match = re.search(r"Ложь:\s*№?([1-3])", reply, re.IGNORECASE)
+        print("GPT reply (Найди ложь):", reply)
+        match = re.search(r"Ложь[:\s\-]*№?([1-3])", reply, re.IGNORECASE)
         false_index = match.group(1) if match else None
         if not false_index:
             await send_message(chat_id, "⚠️ Не удалось сгенерировать утверждения. Попробуй ещё.")
             return
-        statement_text = re.sub(r"Ложь:\s*№?[1-3]", "", reply, flags=re.IGNORECASE).strip()
-        sessions[chat_id] = {"game": "Найди ложь", "answer": false_index}
+        statement_text = re.sub(r"Ложь[:\s\-]*№?[1-3]", "", reply, flags=re.IGNORECASE).strip()
+        sessions[chat_id] = {
+            "game": "Найди ложь",
+            "answer": false_index,
+            "question_text": statement_text
+        }
         await send_message(chat_id, f"🕵️ Найди ложь:\n\n{statement_text}\n\nОтвет введи цифрой (1, 2 или 3).")
         return
 
     if session.get("game") == "Найди ложь":
         guess = text.strip()
         correct = session["answer"]
-        sessions.pop(chat_id)
         win = guess == correct
         update_local_stats("Найди ложь", win)
         reply_text = "🎉 Верно! Ты нашёл ложь!" if win else f"❌ Нет, ложь была под номером {correct}. Попробуешь ещё?"
+        sessions.pop(chat_id)
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
             "resize_keyboard": True
@@ -324,20 +306,21 @@ async def process_game_logic(chat_id, text, first_name):
 3. ...
         """.strip()
         reply = await ask_gpt(prompt)
-        match = re.search(r"Начало:\s*(.+?)(?:\n|$)", reply, re.IGNORECASE)
+        print("GPT reply (Продолжи историю):", reply)
+        match = re.search(r"Начало[:\s\-]*(.+?)(?:\n|$)", reply, re.IGNORECASE)
         intro = match.group(1).strip() if match else None
         if not intro:
             await send_message(chat_id, "⚠️ Не удалось сгенерировать историю. Попробуй ещё.")
             return
-        sessions[chat_id] = {"game": "Продолжи историю"}
+        sessions[chat_id] = {"game": "Продолжи историю", "story": reply}
         await send_message(chat_id, f"📖 Продолжи историю:\n\n{reply}\n\nВыбери номер продолжения (1, 2 или 3).")
         return
 
     if session.get("game") == "Продолжи историю":
         choice = text.strip()
         win = choice in ["1", "2", "3"]
-        sessions.pop(chat_id)
         update_local_stats("Продолжи историю", win)
+        sessions.pop(chat_id)
         reply_text = "🎉 Классное продолжение!" if win else "❌ Не похоже на вариант из списка."
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
@@ -356,22 +339,23 @@ async def process_game_logic(chat_id, text, first_name):
 Ответ: ...
         """.strip()
         reply = await ask_gpt(prompt)
-        match = re.search(r"Ответ:\s*(.+)", reply, re.IGNORECASE)
+        print("GPT reply (Шарада):", reply)
+        match = re.search(r"Ответ[:\s\-]*(.+)", reply, re.IGNORECASE)
         answer = match.group(1).strip().upper() if match else None
         if not answer:
             await send_message(chat_id, "⚠️ Не удалось сгенерировать шараду. Попробуй ещё.")
             return
-        riddle_text = re.sub(r"Ответ:\s*.+", "", reply, flags=re.IGNORECASE).strip()
-        sessions[chat_id] = {"game": "Шарада", "answer": answer}
+        riddle_text = re.sub(r"Ответ[:\s\-]*.+", "", reply, flags=re.IGNORECASE).strip()
+        sessions[chat_id] = {"game": "Шарада", "answer": answer, "riddle_text": riddle_text}
         await send_message(chat_id, f"🧩 Шарада:\n\n{riddle_text}\n\nНапиши свой ответ.")
         return
 
     if session.get("game") == "Шарада":
         guess = text.strip().upper()
         correct = session["answer"]
-        sessions.pop(chat_id)
         win = guess == correct
         update_local_stats("Шарада", win)
+        sessions.pop(chat_id)
         reply_text = "🎉 Молодец! Правильно угадал!" if win else f"❌ Неправильно. Правильный ответ: {correct}. Попробуешь ещё?"
         await send_message(chat_id, reply_text, {
             "keyboard": [[{"text": "Игры 🎲"}], [{"text": "/start"}]],
