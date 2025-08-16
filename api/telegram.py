@@ -196,7 +196,7 @@ D) ...
             if not correct_answer:
                 await send_message(chat_id, "⚠️ Не удалось сгенерировать вопрос. Попробуй снова.")
                 return
-            question_without_answer = re.sub(r"Правильный ответ:\s*[A-D]", "", reply, flags=re.I).strip()
+            question_without_answer = re.sub(r"Правильный ответ:\s*[A-D]", "", reply, flags=re.I)
             sessions[chat_id] = {"correctAnswer": correct_answer}
             await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_without_answer}")
             return
