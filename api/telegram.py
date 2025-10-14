@@ -197,7 +197,14 @@ D) ...
                 return
             question_without_answer = re.sub(r"Правильный ответ:\s*(.+)", "", reply, flags=re.I).strip()
             sessions[chat_id] = {"correctAnswer": correct_answer}
-            await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_without_answer}", {"parse_mode": "Markdown"})
+            await send_message(chat_id, f"📚 Вопрос по теме *{topic}*:\n\n{question_without_answer}", {
+                "keyboard": [
+                    [{"text": "A"}, {"text": "B"}],
+                    [{"text": "C"}, {"text": "D"}]
+                
+                ],
+                "resize_keyboard": True
+            })
             return
 
         # ==== Проверка ответа на тест ====
