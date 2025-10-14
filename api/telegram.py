@@ -69,7 +69,7 @@ async def ask_gpt(prompt, chat_history=None):
         if chat_history:
             messages.append({
                 "role": "system", 
-                "content": "Ты полезный AI-ассистент, который отвечает на вопросы пользователей. Будь вежливым, информативным и помогающим."
+                "content": "Ты полезный AI-ассистент, который отвечает на вопросы пользователей. Будь вежливым, информативным и помогающим и мог отвечать на любые вопросы."
             })
             # Добавляем историю диалога
             messages.extend(chat_history)
@@ -87,7 +87,7 @@ async def ask_gpt(prompt, chat_history=None):
                 json={
                     "model": "openai/gpt-3.5-turbo",
                     "messages": messages,
-                    "temperature": 0.7,
+                    "temperature": 1,
                     "max_tokens": 1000
                 }
             )
