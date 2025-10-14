@@ -12,6 +12,7 @@ sessions = {}
 feed = {}
 stats = {}
 feedback_sessions = {}
+ai_chat_sessions = {}  # Новое: сессии для ИИ-чата
 
 # --- Переменные окружения ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -60,7 +61,23 @@ async def answer_callback_query(callback_query_id):
 async def ask_gpt(prompt):
     if not OPENROUTER_API_KEY:
         return "Ошибка: нет OPENROUTER_API_KEY"
+    
     try:
+        # Формируем историю сообщений для контекста
+        messages = []
+        
+        # Добавляем системный промпт для ИИ-помощника
+        if chat_history:
+            messages.append({
+                "role": "system", 
+                "content": "Ты полезный AI-ассистент, который отвечает на вопросы пользователей. Будь вежливым, информативным и помогающим."
+            })
+            # Добавляем историю диалога
+            messages.extend(chat_history)
+        
+        # Добавляем текущий запрос пользователя
+        messages.append({"role": "user", "content": prompt})
+        
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -70,8 +87,9 @@ async def ask_gpt(prompt):
                 },
                 json={
                     "model": "openai/gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 1
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 1000
                 }
             )
             data = res.json()
@@ -97,6 +115,61 @@ async def process_game_logic(chat_id, text, first_name):
             stats[local_chat_id][game]["wins"] += 1
 
     try:
+            # ==== ИИ-помощник ====
+        if text == "/ai" or text == "🤖 ИИ-помощник":
+            # Начинаем сессию с ИИ
+            ai_chat_sessions[chat_id] = []
+            await send_message(chat_id, 
+                "🤖 Привет! Я твой ИИ-помощник. Задай мне любой вопрос, и я постараюсь помочь!\n\n"
+                "Можешь спросить о чем угодно: учеба, программирование, советы по разным темам и т.д.\n\n"
+                "Чтобы закончить диалог, напиши /stop или нажми кнопку 'Закончить диалог'", 
+                {
+                    "keyboard": [[{"text": "Закончить диалог"}]],
+                    "resize_keyboard": True
+                }
+            )
+            return
+
+        # ==== Обработка вопросов к ИИ ====
+        if chat_id in ai_chat_sessions and text not in ["/stop", "Закончить диалог", "Назад"]:
+            # Показываем, что бот печатает
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendChatAction",
+                    json={"chat_id": chat_id, "action": "typing"}
+                )
+            
+            # Получаем ответ от ИИ
+            ai_response = await ask_gpt(text, ai_chat_sessions[chat_id])
+            
+            # Обновляем историю диалога (сохраняем последние 10 сообщений)
+            ai_chat_sessions[chat_id].append({"role": "user", "content": text})
+            ai_chat_sessions[chat_id].append({"role": "assistant", "content": ai_response})
+            
+            # Ограничиваем историю 10 сообщениями (5 пар вопрос-ответ)
+            if len(ai_chat_sessions[chat_id]) > 10:
+                ai_chat_sessions[chat_id] = ai_chat_sessions[chat_id][-10:]
+            
+            await send_message(chat_id, ai_response, {
+                "keyboard": [[{"text": "Закончить диалог"}]],
+                "resize_keyboard": True
+            })
+            return
+
+        # ==== Завершение диалога с ИИ ====
+        if text in ["/stop", "Закончить диалог"] and chat_id in ai_chat_sessions:
+            ai_chat_sessions.pop(chat_id)
+            await send_message(chat_id, "✅ Диалог с ИИ-помощником завершен. Чем еще могу помочь?", {
+                "keyboard": [
+                    [{"text": "История"}, {"text": "Математика"}],
+                    [{"text": "Английский"}, {"text": "Игры 🎲"}],
+                    [{"text": "🤖 ИИ-помощник"}, {"text": "/feedback"}],
+                    [{"text": "📤 Поделиться контактом", "request_contact": True}]
+                ],
+                "resize_keyboard": True
+            })
+            return
+        #--------------------
         # ==== Контакт ====
         if text == "/contact":
             feed[chat_id] = True
