@@ -57,8 +57,7 @@ async def answer_callback_query(callback_query_id):
             )
         except Exception as e:
             print("answer_callback_query error:", e)
-
-async def ask_gpt(prompt):
+async def ask_gpt(prompt, chat_history=None):
     if not OPENROUTER_API_KEY:
         return "Ошибка: нет OPENROUTER_API_KEY"
     
