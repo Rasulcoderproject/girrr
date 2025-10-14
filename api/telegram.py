@@ -197,7 +197,7 @@ async def process_game_logic(chat_id, text, first_name):
         if text in ["/start"]:
             sessions[chat_id] = {"firstName": first_name}
             await send_message(chat_id, f"👋 Привет, {first_name or 'друг'}! Выбери тему для теста или игру:", {
-                "keyboard": [[{"text": "🤖 ИИ-помощник"}]
+                "keyboard": [[{"text": "🤖 ИИ-помощник"}],
                     [{"text": "История"}, {"text": "Математика"}],
                     [{"text": "Английский"}, {"text": "Игры 🎲"}],
                     [{"text": "/feedback"}, {"text": "📤 Поделиться контактом", "request_contact": True}]
